@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="js/cpu.js"></script>
+    <script src="js/disassembler.js"></script>
+    <script src="js/memory.js"></script>
+    <title>Space Invaders Emulator</title>
+  </head>
+  <body>
+    <input type="file" name="rom" id="rom" />
+    <button id="runner">Run</button>
+
+    <script>
+      const romInput = document.getElementById("rom");
+      const runner = document.getElementById("runner");
+      let disassembler = null;
+      romInput.addEventListener("change", function () {
+        const file = this.files[0];
+        const reader = new FileReader();
+
+        // read the file as a binary string
+        reader.readAsArrayBuffer(file);
+
+        // on load, create a Uint8Array from the binary string
+        reader.onload = function () {
+          const arrayBuffer = this.result;
+          const uint8Array = new Uint8Array(arrayBuffer);
+          console.log({ uint8Array });
+          const memory = new Memory(uint8Array);
+          disassembler = new Disassembler({ memory });
+        };
+      });
+
+      runner.addEventListener("click", () => disassembler.disAssemble());
+    </script>
+  </body>
+</html>
