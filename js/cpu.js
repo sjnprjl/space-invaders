@@ -380,6 +380,21 @@ class Cpu {
     return 7;
   }
 
+  /**
+   * Exclusive-OR Immediate with Accumulator
+   *
+   * The byte of immediate data is EXCLUSIVE-ORed with the contents of the
+   * accumulator. The carry bit is set to zero.
+   * Condition bits affected: Carry, Zero, Sign, Parity
+   */
+  xri() {
+    const imm = this.memory.readByte(this.PC + 1);
+    const result = this.A ^ imm;
+    this._logicalGroupFlagChange(result);
+    this.PC += 2;
+    return 7;
+  }
+
   _or(a, b) {
     this.CarryFlag = false;
     const result = a | b;
@@ -403,6 +418,28 @@ class Cpu {
     this.A = this._or(value, this.A);
     this.PC += 1;
     return 4;
+  }
+
+  /**
+   * Or Immediate With Accumulator
+   *
+   * @description
+   * The byte of immediate data is logically
+   * ORed with the contents of the accumulator.
+   *
+   * The result is stored in the accumulator. The Carry bit
+   * is reset to zero, while the Zero, Sign, and Parity bits are set
+   * according to the result.
+   *
+   * Condition bits affected: Carry, Zero, Sign, Parity
+   */
+  ori() {
+    const imm = this.memory.readByte(this.PC + 1);
+    let aux = this.AuxCarryFlag;
+    this.A = this._or(imm, this.A);
+    this.AuxCarryFlag = aux;
+    this.PI += 2;
+    return 7;
   }
 
   /**
@@ -483,6 +520,18 @@ class Cpu {
   }
 
   /**
+   * Set Carry
+   *
+   * @description
+   * The Carry bit is set to one
+   */
+  stc() {
+    this.CarryFlag = true;
+    this.PC += 1;
+    return 4;
+  }
+
+  /**
    * @param {'BC' | 'DE' | 'HL' | 'SP'} rp
    */
   LXI(rp) {
@@ -531,6 +580,13 @@ class Cpu {
     return 10;
   }
 
+  /**
+   * Rotate Accumulator Instructions
+   */
+
+  /**
+   * Rotate Accumulator Right
+   */
   rrc() {
     this.CarryFlag = this.A & 0x01;
     this.A = (this.A >> 1) | (this.CarryFlag << 7);
@@ -553,6 +609,23 @@ class Cpu {
   rlc() {
     this.CarryFlag = this.A & 0x80;
     this.A = ((this.A << 1) | this.CarryFlag) & 0xff;
+    this.PC += 1;
+    return 4;
+  }
+
+  /**
+   * Rotate Accumulator Right Through Carry
+   *
+   * The contents of the accumulator are rotated one bit position to the right.
+   *
+   * The low-order bit of the accumulator replaces the carry bit, while the
+   * carry bit replaces the high-order bit of the accumulator.
+   *
+   * Condition bits affected: Carry
+   */
+  rar() {
+    this.CarryFlag = this.A & 0x01;
+    this.A = (this.A >> 1) | (this.CarryFlag << 7);
     this.PC += 1;
     return 4;
   }
@@ -932,6 +1005,24 @@ class Cpu {
   }
 
   /**
+   * Load H And L Direct
+   *
+   * @description
+   * The byte at the memory address formed
+   * by concatenating HI ADD with LOW ADD
+   * replaces the contents of the L register.
+   * The byte at the next higher memory
+   * address replaces the contents of the H register.
+   *
+   * Condition bits affected: None
+   */
+  lhld() {
+    this.HL = this.memory.read16(this.PC + 1);
+    this.PC += 3;
+    return 16;
+  }
+
+  /**
    * Call if zero
    *
    * @description
@@ -953,6 +1044,52 @@ class Cpu {
    */
   cnz() {
     if (this.ZeroFlag) return this.call();
+    this.PC += 3;
+    return 11;
+  }
+
+  /**
+   * Call if not carry
+   *
+   * @description
+   * If the Carry bit is zero, a call operation is
+   * performed to subroutine sub
+   */
+  cnc() {
+    if (!this.CarryFlag) return this.call();
+    this.PC += 3;
+    return 11;
+  }
+
+  /**
+   * Call if minus
+   *
+   * @description
+   * If the Sign bit is one (indicating a minus result), a call operation is
+   * performed to subroutine sub.
+   *
+   * Condition bits affected: None
+   */
+  cm() {
+    if (!this.SignFlag) return this.call();
+    this.PC += 3;
+    return 11;
+  }
+
+  /**
+   *
+   * Call if Parity Even
+   *
+   * @description
+   *
+   * If the Parity bit is one (indicating even parity), a call operation is
+   * performed to subroutine sub.
+   *
+   * Condition bits affected: None
+   *
+   */
+  cpe() {
+    if (this.ParityFlag) return this.call();
     this.PC += 3;
     return 11;
   }
@@ -1007,6 +1144,31 @@ class Cpu {
     this.PC += 1;
     return 5;
   }
+
+  /**
+   * Return If Minus
+   *
+   * @description
+   * If the Sign bit is one (indicating a minus result), a return operation is
+   * performed.
+   */
+  rm() {
+    if (this.SignFlag) return this.ret(), 11;
+    this.PC += 1;
+    return 5;
+  }
+
+  /**
+   * Return if Plus
+   *
+   * If the Sign bit is zero (indicating a plus result), a return operation is
+   * performed.
+   */
+  rp() {
+    if (!this.SignFlag) return this.ret(), 11;
+    this.PC += 1;
+    return 5;
+  }
   /**
    * Jump if minus
    *
@@ -1017,6 +1179,19 @@ class Cpu {
    */
   jm() {
     if (this.SignFlag) this.PC = this.memory.read16(this.PC + 1);
+    else this.PC += 3;
+    return 10;
+  }
+
+  /**
+   * Jump If Parity Odd
+   *
+   * @description
+   * If the Parity bit is zero (indicating a result with odd parity), program
+   * execution continues at the memory address adr.
+   */
+  jpo() {
+    if (!this.ParityFlag) this.PC = this.memory.read16(this.PC + 1);
     else this.PC += 3;
     return 10;
   }
@@ -1082,6 +1257,53 @@ class Cpu {
     return 7;
   }
 
+  /**
+   * Complement Accumulator
+   * Each bit of the contents of the accumulator
+   * is complemented (producing the one's complement).
+   *
+   *  Condition bits affected: None
+   */
+  cma() {
+    this.A = ~this.A & 0xff;
+    this.PC += 1;
+    return 4;
+  }
+
+  /**
+   * Complement Carry
+   *
+   * @description
+   * If the Carry bit = 0, it is set to 1. If the Carry bit = 1, it is reset to
+   * O.
+   *
+   * Carry Condition bits affected: Carry
+   */
+  cmc() {
+    this.CarryFlag = !this.CarryFlag;
+    this.PC += 1;
+    return 4;
+  }
+
+  /**
+   * RST Instruction
+   *
+   * @description
+   *
+   * The contents of the program counter
+   * are pushed onto the stack, providing a return address for
+   * later use by a RETURN instruction
+   *
+   *
+   * @param {number} exp RST Vector
+   */
+  rst(exp) {
+    this.memory.writeByte(this.SP - 1, (this.PC >> 8) & 0xff);
+    this.memory.writeByte(this.SP - 2, this.PC & 0xff);
+    this.SP -= 2;
+    this.PC = exp;
+  }
+
   execute() {
     const opcode = this.memory.readByte(this.PC);
     console.log(`Current Address: ${this.PC.toString(16).padStart(4, "0")}`);
@@ -1115,7 +1337,11 @@ class Cpu {
         action: () => this.stax.call(this, "BC"),
         len: 1,
       },
-      /** 0x3 */ null,
+      /** 0x3 */ {
+        instr: "INX B",
+        action: () => this.inx.call(this, "BC"),
+        len: 1,
+      },
       /** 0x4 */ {
         instr: "INR B",
         action: () => this.inr.call(this, "B"),
@@ -1132,7 +1358,7 @@ class Cpu {
         len: 2,
       },
       /** 0x7 */ { instr: "RLC", action: this.rlc, len: 1 },
-      /** 0x8 */ null,
+      /** 0x8 */ { instr: "NOP", action: this.noop, len: 1 },
       /** 0x9 */ {
         instr: "DAD BC",
         action: () => this.dad.call(this, "BC"),
@@ -1177,7 +1403,11 @@ class Cpu {
         action: () => this.stax.call(this, "DE"),
         len: 1,
       },
-      /** 0x3 */ null,
+      /** 0x3 */ {
+        instr: "INX D",
+        action: () => this.inx.call(this, "DE"),
+        len: 1,
+      },
       /** 0x4 */ {
         instr: "INR D",
         action: () => this.inr.call(this, "D"),
@@ -1194,7 +1424,7 @@ class Cpu {
         len: 2,
       },
       /** 0x7 */ null,
-      /** 0x8 */ null,
+      /** 0x8 */ { instr: "NOP", action: this.noop, len: 1 },
       /** 0x9 */ {
         instr: "DAD DE",
         action: () => this.dad.call(this, "DE"),
@@ -1210,14 +1440,22 @@ class Cpu {
         action: () => this.dcx.call(this, "DE"),
         len: 1,
       },
-      /** 0xc */ null,
+      /** 0xc */ {
+        instr: "INR E",
+        action: () => this.inr.call(this, "E"),
+        len: 1,
+      },
       /** 0xd */ {
         instr: "DCR E",
         action: () => this.dcr.call(this, "E"),
         len: 1,
       },
-      /** 0xe */ null,
-      /** 0xf */ null,
+      /** 0xe */ {
+        instr: "MVI E,",
+        action: () => this.mvi.call(this, "E"),
+        len: 2,
+      },
+      /** 0xf */ { instr: "RAR", action: this.rar, len: 1 },
     ],
     /** 0x2 */ [
       /** 0x0 */ { instr: "NOP", action: this.noop, len: 1 },
@@ -1232,17 +1470,29 @@ class Cpu {
         action: () => this.inx.call(this, "HL"),
         len: 1,
       },
-      /** 0x4 */ null,
-      /** 0x5 */ null,
-      /** 0x6 */ null,
+      /** 0x4 */ {
+        instr: "INR H",
+        action: () => this.inr.call(this, "H"),
+        len: 1,
+      },
+      /** 0x5 */ {
+        instr: "DCR H",
+        action: () => this.dcr.call(this, "H"),
+        len: 1,
+      },
+      /** 0x6 */ {
+        instr: "MVI H,",
+        action: () => this.mvi.call(this, "H"),
+        len: 2,
+      },
       /** 0x7 */ { instr: "DAA", action: this.daa, len: 1 },
-      /** 0x8 */ null,
-      /** 0x9 */ null,
-      /** 0xa */ {
+      /** 0x8 */ { instr: "NOP", action: this.noop, len: 1 },
+      /** 0x9 */ {
         instr: "DAD HL",
         action: () => this.dad.call(this, "HL"),
         len: 2,
       },
+      /** 0xa */ { instr: "LHLD", action: this.lhld, len: 3 },
       /** 0xb */ {
         instr: "DCX HL",
         action: () => this.dcx.call(this, "HL"),
@@ -1259,7 +1509,7 @@ class Cpu {
         action: () => this.mvi.call(this, "L"),
         len: 2,
       },
-      /** 0xf */ null,
+      /** 0xf */ { instr: "CMA", action: this.cma, len: 1 },
     ],
     /** 0x3 */ [
       /** 0x0*/ { instr: "NOP", action: this.noop, len: 1 },
@@ -1280,9 +1530,13 @@ class Cpu {
         action: () => this.inr.call(this, "M"),
       },
       /** 0x5*/ { instr: "DCR (HL)", len: 1, action: this.dcrM },
-      { instr: "MVI (HL)", len: 2, action: () => this.mvi.call(this, "M") },
-      null,
-      null,
+      /** 0x6 */ {
+        instr: "MVI (HL)",
+        len: 2,
+        action: () => this.mvi.call(this, "M"),
+      },
+      { instr: "STC", action: this.stc, len: 1 },
+      { instr: "NOP", action: this.noop, len: 1 },
       { instr: "DAD SP", action: () => this.dad.call(this, "SP"), len: 1 },
       {
         instr: "LDA",
@@ -1297,7 +1551,7 @@ class Cpu {
         action: () => this.mvi.call(this),
         len: 2,
       },
-      null,
+      { instr: "CMC", action: this.cmc, len: 1 },
     ],
     /** 0x4 */ [
       {
@@ -1702,30 +1956,34 @@ class Cpu {
       { instr: "CMP A", action: () => this.cmp.call(this, "A"), len: 1 },
     ],
     /** 0xc */ [
-      { instr: "RNZ", action: this.rnz, len: 1 },
-      { instr: "POP BC", action: () => this.pop.call(this, "B", "C"), len: 1 },
-      {
+      /** 0x0 */ { instr: "RNZ", action: this.rnz, len: 1 },
+      /** 0x1 */ {
+        instr: "POP BC",
+        action: () => this.pop.call(this, "B", "C"),
+        len: 1,
+      },
+      /** 0x2 */ {
         instr: "JNZ",
         action: this.jnz,
         len: 3,
       },
-      {
+      /** 0x3 */ {
         instr: "JMP",
         action: this.jmp,
         len: 3,
       },
-      { instr: "CNZ", action: this.cnz, len: 3 },
-      {
+      /** 0x4 */ { instr: "CNZ", action: this.cnz, len: 3 },
+      /** 0x5 */ {
         instr: "PUSH BC",
         action: () => this.pushXX.call(this, "B", "C"),
         len: 1,
       },
-      {
+      /** 0x6 */ {
         instr: "ADI",
         action: this.adi,
         len: 2,
       },
-      null,
+      /** 0x7 */ { instr: "RST 0", action: () => this.rst(0x0000), len: 1 },
       { instr: "RZ", action: this.rz, len: 1 },
       { instr: "RET", action: this.ret, len: 1 },
       {
@@ -1741,7 +1999,7 @@ class Cpu {
         len: 3,
       },
       /** 0xe */ null,
-      /** 0xf */ null,
+      /** 0xf */ { instr: "RST 1", action: () => this.rst(0x08), len: 1 },
     ],
     /** 0xd */ [
       /** 0x0 */ { instr: "RNC", action: this.rnc, len: 1 },
@@ -1756,16 +2014,16 @@ class Cpu {
         len: 3,
       },
       /** 0x3 */ { instr: "OUT", action: this.out, len: 2 },
-      null,
+      { instr: "CNC", action: this.cnc, len: 3 },
       /** 0x5 */ {
         instr: "PUSH DE",
         action: () => this.pushXX.call(this, "D", "E"),
         len: 1,
       },
       /** 0x6 */ { instr: "SUI", action: this.sui, len: 2 },
-      /** 0x7 */ null,
-      /** 0x8 */ null,
-      /** 0x9 */ { instr: "RC", action: this.rc, len: 1 },
+      /** 0x7 */ { instr: "RST 2", action: () => this.rst(0x10), len: 1 },
+      /** 0x8 */ { instr: "RC", action: this.rc, len: 1 },
+      /** 0x9 */ null,
       /** 0xa */ {
         instr: "JC",
         action: this.jc,
@@ -1779,7 +2037,7 @@ class Cpu {
       /**0xc */ null,
       /**0xd */ null,
       /**0xe */ { instr: "SBI", action: this.sbi, len: 2 },
-      /**0xf */ null,
+      /** 0xf */ { instr: "RST 3", action: () => this.rst(0x18), len: 1 },
     ],
     /** 0xe */ [
       { instr: "RPO", action: this.rpo, len: 1 },
@@ -1788,7 +2046,7 @@ class Cpu {
         action: () => this.pop.call(this, "H", "L"),
         len: 1,
       },
-      null,
+      { instr: "JPO", action: this.jpo, len: 3 },
       { instr: "XTHL", action: this.xthl, len: 1 },
       null,
       {
@@ -1797,18 +2055,18 @@ class Cpu {
         len: 1,
       },
       { instr: "ANI", action: this.ani, len: 2 },
-      null,
+      /** 0x7 */ { instr: "RST 4", action: () => this.rst(0x20), len: 1 },
       { instr: "RPE", action: this.rpe, len: 1 },
       { instr: "PCHL", action: this.pchl, len: 1 },
       null,
       { instr: "XCHG", action: this.xchg, len: 1 },
+      { instr: "CPE", action: this.cpe, len: 3 },
       null,
-      null,
-      null,
-      null,
+      { instr: "XRI", action: this.xri, len: 2 },
+      /** 0xf */ { instr: "RST 5", action: () => this.rst(0x28), len: 1 },
     ],
     /** 0xf */ [
-      null,
+      { instr: "RP", action: this.rp, len: 1 },
       { instr: "POP AF", action: () => this.pop.call(this, "A", "F"), len: 1 },
       null,
       null,
@@ -1818,20 +2076,20 @@ class Cpu {
         action: () => this.pushXX.call(this, "A", "F"),
         len: 1,
       },
-      null,
-      null,
-      null,
+      { instr: "ORI", action: this.ori, len: 2 },
+      /** 0x7 */ { instr: "RST 5", action: () => this.rst(0x30), len: 1 },
+      { instr: "RM", action: this.rm, len: 1 },
       null,
       { instr: "JM", action: this.jm, len: 3 }, // 0xfa
       { instr: "EI", action: this.ei, len: 1 },
-      null,
+      { instr: "CM", action: this.cm, len: 3 },
       null,
       {
         instr: "CPI",
         action: this.cpi,
         len: 2,
       },
-      null,
+      /** 0xf */ { instr: "RST 5", action: () => this.rst(0x38), len: 1 },
     ],
   ];
 }
