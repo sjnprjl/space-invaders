@@ -22,6 +22,8 @@ class Cpu {
 
   _isInterrupted = false;
 
+  _devices = new Map();
+
   constructor({ memory }) {
     this.memory = memory;
     this._isHalted = false;
@@ -378,6 +380,75 @@ class Cpu {
     return 7;
   }
 
+  _or(a, b) {
+    this.CarryFlag = false;
+    const result = a | b;
+    this._logicalGroupFlagChange(result);
+    return result;
+  }
+
+  /**
+   * Logical or Register or Memory With Accumulator
+   *
+   * The specified byte is logically ORed bit
+   * by bit with the contents of the accumulator. The carry bit
+   * is reset to zero.
+   *
+   * @param {'A' | 'B' | 'C' | 'D' | 'E' | 'H' | 'L' |  'F' | 'M'} regm
+   */
+  ora(regm) {
+    let value;
+    if (regm === "M") value = this.memory.readByte(this.HL);
+    else value = this[regm];
+    this.A = this._or(value, this.A);
+    this.PC += 1;
+    return 4;
+  }
+
+  /**
+   * Compare Register or Memory With Accumulator
+   *
+   * @description
+   * The specified byte is compared to the
+   * contents of the accumulator. The comparison is performed by internally
+   * subtracting the contents of REG from the accumulator (leaving both
+   * unchanged) and setting the condition bits according to the result. In
+   * particular, the Zero bit is set if the quantities are equal, and reset if
+   * they are unequal.  Since a subtract operation is performed, the Carry bit
+   * will be set if there is no carry out of bit 7, indicati ng that the contents
+   * of REG are greater than the contents of the accumulator, and reset
+   * otherwise.  NOTE: If the two quantities to be compared differ in sign, the
+   * sense of the Carry bit is reversed.  Condition bits affected: Carry, Zero,
+   * Sign, Parity, Auxiliary Carry
+   *
+   * @param {'A' | 'B' | 'C' | 'D' | 'E' | 'H' | 'L' | 'M'} regm
+   */
+  cmp(regm) {
+    let value;
+    if (regm === "M") value = this.memory.readByte(this.HL);
+    else value = this[regm];
+    this._sub(this.A, value);
+    this.PC += 1;
+    return 4;
+  }
+
+  /**
+   * Subtract Immediate From Accumulator
+   *
+   * The byte of immediate data is subtracted
+   * from the contents of the accumulator using two's complement arithmetic.
+   *
+   * Since this is a subtraction operation, the carry bit is
+   * set, indicating a borrow, if there is no carry out of the highorder bit
+   * position, and reset if there is a carry out.  Condition bits affected: Carry,
+   * Sign, Zero, Parity, Auxiliary Carry
+   */
+  sui() {
+    this.A = this._sub(this.A, this.memory.readByte(this.PC + 1));
+    this.PC += 2;
+    return 7;
+  }
+
   halt() {
     this.PC += 1;
     this._isHalted = true;
@@ -411,9 +482,13 @@ class Cpu {
     return 13;
   }
 
-  LXI(r1, r2) {
+  /**
+   * @param {'BC' | 'DE' | 'HL' | 'SP'} rp
+   */
+  LXI(rp) {
     const value = this.memory.read16(this.PC + 1);
-    this.setPair(r1, r2, value);
+    if (rp === "SP") this.SP = value;
+    else this[rp] = value;
     this.PC += 3;
     return 10;
   }
@@ -431,10 +506,27 @@ class Cpu {
   /**
    * Input d8
    * TODO: Maybe add some flags to notify that input is read?
+   *
+   * @description
+   * An eight-bit data byte is read from input
+   * device number exp and replaces the contents of the accumulator
    */
   in() {
     const descriptor = this.memory.readByte(this.PC + 1);
-    this.A = descriptor;
+    this.A = this._devices.get(descriptor);
+    this.PC += 2;
+    return 10;
+  }
+
+  /**
+   * OUT
+   *
+   * @description
+   * The contents of the accumulator are sent
+   * to output device number expo
+   */
+  out() {
+    this._devices.set(this.memory.readByte(this.PC + 1), this.A);
     this.PC += 2;
     return 10;
   }
@@ -614,6 +706,11 @@ class Cpu {
 
   /**
    * Decrement register pair
+   *
+   * @description
+   * The 16-bit number held in the specified
+   * register pair is decremented by one.
+   * Condition bits affected: None
    */
   dcx(rp) {
     const value = (this[rp] - 1) & 0xffff;
@@ -800,6 +897,41 @@ class Cpu {
   }
 
   /**
+   * Exchange Stack
+   *
+   *
+   * @description
+   * The contents of the L register are exchanged with the contents of the
+   * memory byte whose address is held in the stack pointer SP. The contents of
+   * the H register are exchanged with the contents of the memory byte whose
+   * address is one greater than that held in the stack pointer.
+   * Condition bits affected: None
+   */
+  xthl() {
+    const tempSP = this.SP;
+    this.SP = this.HL;
+    this.HL = tempSP;
+    this.PC += 1;
+    return 18;
+  }
+
+  /**
+   * Load Program Counter
+   *
+   * @description
+   * The contents of the H register replace the
+   * most significant 8 bits of the program counter, and the contents of the L
+   * register replace the least significant 8 bits of the program counter. This
+   * causes program execution to continue at the address contained in the Hand L
+   * registers.
+   */
+  pchl() {
+    this.PC = this.HL;
+    this.PC += 1;
+    return 5;
+  }
+
+  /**
    * Call if zero
    *
    * @description
@@ -853,6 +985,29 @@ class Cpu {
   }
 
   /**
+   * Return If No Carry
+   *
+   * @description
+   * If the carry bit is zero, a return operation is performed.
+   */
+  rnc() {
+    if (!this.CarryFlag) return this.ret(), 11;
+    this.PC += 1;
+    return 5;
+  }
+
+  /**
+   * Return If Carry
+   *
+   * @description
+   * If the carry bit is one, a return operation is performed.
+   */
+  rc() {
+    if (this.CarryFlag) return this.ret(), 11;
+    this.PC += 1;
+    return 5;
+  }
+  /**
    * Jump if minus
    *
    * @description
@@ -864,6 +1019,67 @@ class Cpu {
     if (this.SignFlag) this.PC = this.memory.read16(this.PC + 1);
     else this.PC += 3;
     return 10;
+  }
+
+  /**
+   * Store Accumulator
+   *
+   * @description
+   *
+   * The contents of the accumulator are
+   * stored in the memory location addressed by registers Band
+   * C, or by registers 0 and E.
+   *
+   * Condition bits affected: None
+   *
+   * @param {'BC' | 'DE'} rp
+   */
+  stax(rp) {
+    this.memory.writeByte(rp, this.A);
+    this.PC += 1;
+    return 7;
+  }
+
+  /**
+   * Return If Parity Odd
+   *
+   * @description
+   * If the Parity bit is zero (indicating odd parity),
+   *  a return operation is performed.
+   */
+  rpo() {
+    if (!this.ParityFlag) return this.ret(), 11;
+    this.PC += 1;
+    return 5;
+  }
+
+  /**
+   * Return If Parity Even
+   *
+   * @description
+   * If the Parity bit is one (indicating even parity),
+   *  a return operation is performed.
+   */
+  rpe() {
+    if (this.ParityFlag) return this.ret(), 11;
+    this.PC += 1;
+    return 5;
+  }
+
+  /**
+   * Load Accumulator
+   *
+   * @description
+   * The contents of the memory location
+   * addressed by registers B and C, or by registers D and E,
+   * replace the contents of the accumulator
+   *
+   * @param {'BC' | 'DE'} rp
+   */
+  ldax(rp) {
+    this.A = this.memory.readByte(this[rp]);
+    this.PC += 1;
+    return 7;
   }
 
   execute() {
@@ -888,44 +1104,126 @@ class Cpu {
 
   __instructions = [
     /** 0x0 */ [
-      { instr: "NOP", action: this.noop, len: 1 },
-      null,
-      null,
-      null,
-      null,
-      { instr: "DCR B", action: () => this.dcr.call(this, "B"), len: 1 },
-      { instr: "MVI B,", action: () => this.mvi.call(this, "B"), len: 2 },
-      { instr: "RLC", action: this.rlc, len: 1 },
-      null,
-      { instr: "DAD BC", action: () => this.dad.call(this, "BC"), len: 1 },
-      null,
-      { instr: "DCX BC", action: () => this.dcx.call(this, "BC"), len: 1 },
-      null,
-      null,
-      null,
-      { instr: "RRC", action: this.rrc, len: 1 },
+      /** 0x0 */ { instr: "NOP", action: this.noop, len: 1 },
+      /** 0x1 */ {
+        instr: "LXI B",
+        action: () => this.LXI.call(this, "BC"),
+        len: 3,
+      },
+      /** 0x2 */ {
+        instr: "STAX B",
+        action: () => this.stax.call(this, "BC"),
+        len: 1,
+      },
+      /** 0x3 */ null,
+      /** 0x4 */ {
+        instr: "INR B",
+        action: () => this.inr.call(this, "B"),
+        len: 1,
+      },
+      /** 0x5 */ {
+        instr: "DCR B",
+        action: () => this.dcr.call(this, "B"),
+        len: 1,
+      },
+      /** 0x6 */ {
+        instr: "MVI B,",
+        action: () => this.mvi.call(this, "B"),
+        len: 2,
+      },
+      /** 0x7 */ { instr: "RLC", action: this.rlc, len: 1 },
+      /** 0x8 */ null,
+      /** 0x9 */ {
+        instr: "DAD BC",
+        action: () => this.dad.call(this, "BC"),
+        len: 1,
+      },
+      /** 0xa */ {
+        instr: "LDAX B",
+        action: () => this.ldax.call(this, "BC"),
+        len: 1,
+      },
+      /** 0xb */ {
+        instr: "DCX BC",
+        action: () => this.dcx.call(this, "BC"),
+        len: 1,
+      },
+      /** 0xc */ {
+        instr: "INR C",
+        action: () => this.inr.call(this, "C"),
+        len: 1,
+      },
+      /** 0xd */ {
+        instr: "DCR C",
+        action: () => this.dcr.call(this, "C"),
+        len: 1,
+      },
+      /** 0xe */ {
+        instr: "MVI C,",
+        action: () => this.mvi.call(this, "C"),
+        len: 2,
+      },
+      /** 0xf */ { instr: "RRC", action: this.rrc, len: 1 },
     ],
     /** 0x1 */ [
-      { instr: "NOP", action: this.noop, len: 1 },
-      { instr: "LXI DE", action: () => this.LXI.call(this, "D", "E"), len: 1 },
-      null,
-      null,
-      { instr: "INR D", action: () => this.inr.call(this, "D"), len: 1 },
-      { instr: "DCR D", action: () => this.dcr.call(this, "D"), len: 1 },
-      {
+      /** 0x0 */ { instr: "NOP", action: this.noop, len: 1 },
+      /** 0x1 */ {
+        instr: "LXI D",
+        action: () => this.LXI.call(this, "DE"),
+        len: 3,
+      },
+      /** 0x2 */ {
+        instr: "STAX DE",
+        action: () => this.stax.call(this, "DE"),
+        len: 1,
+      },
+      /** 0x3 */ null,
+      /** 0x4 */ {
+        instr: "INR D",
+        action: () => this.inr.call(this, "D"),
+        len: 1,
+      },
+      /** 0x5 */ {
+        instr: "DCR D",
+        action: () => this.dcr.call(this, "D"),
+        len: 1,
+      },
+      /** 0x6 */ {
         instr: "MVI D,",
         action: () => this.mvi.call(this, "D"),
         len: 2,
       },
-      null,
-      null,
-      { instr: "DAD DE", action: () => this.dad.call(this, "DE"), len: 1 },
+      /** 0x7 */ null,
+      /** 0x8 */ null,
+      /** 0x9 */ {
+        instr: "DAD DE",
+        action: () => this.dad.call(this, "DE"),
+        len: 1,
+      },
+      /** 0xa */ {
+        instr: "LDAX DE",
+        action: () => this.ldax.call(this, "DE"),
+        len: 1,
+      },
+      /** 0xb */ {
+        instr: "DCX DE",
+        action: () => this.dcx.call(this, "DE"),
+        len: 1,
+      },
+      /** 0xc */ null,
+      /** 0xd */ {
+        instr: "DCR E",
+        action: () => this.dcr.call(this, "E"),
+        len: 1,
+      },
+      /** 0xe */ null,
+      /** 0xf */ null,
     ],
     /** 0x2 */ [
       /** 0x0 */ { instr: "NOP", action: this.noop, len: 1 },
       /** 0x1 */ {
-        instr: "LXI HL",
-        action: () => this.LXI.call(this, "H", "L"),
+        instr: "LXI H",
+        action: () => this.LXI.call(this, "HL"),
         len: 3,
       },
       /** 0x2 */ { instr: "SHLD", action: this.shld, len: 3 },
@@ -934,29 +1232,53 @@ class Cpu {
         action: () => this.inx.call(this, "HL"),
         len: 1,
       },
-      null,
-      null,
-      null,
-      { instr: "DAA", action: this.daa, len: 1 },
-      null,
-      null,
-      { instr: "DAD HL", action: () => this.dad.call(this, "HL"), len: 1 },
-      { instr: "DCX HL", action: () => this.dcx.call(this, "HL"), len: 1 },
-      null,
-      null,
-      null,
-      null,
+      /** 0x4 */ null,
+      /** 0x5 */ null,
+      /** 0x6 */ null,
+      /** 0x7 */ { instr: "DAA", action: this.daa, len: 1 },
+      /** 0x8 */ null,
+      /** 0x9 */ null,
+      /** 0xa */ {
+        instr: "DAD HL",
+        action: () => this.dad.call(this, "HL"),
+        len: 2,
+      },
+      /** 0xb */ {
+        instr: "DCX HL",
+        action: () => this.dcx.call(this, "HL"),
+        len: 1,
+      },
+      /** 0xc */ {
+        instr: "INR L",
+        action: () => this.inr.call(this, "L"),
+        len: 1,
+      },
+      /** 0xd */ null,
+      /** 0xe */ {
+        instr: "MVI L,",
+        action: () => this.mvi.call(this, "L"),
+        len: 2,
+      },
+      /** 0xf */ null,
     ],
     /** 0x3 */ [
       /** 0x0*/ { instr: "NOP", action: this.noop, len: 1 },
-      /** 0x1*/ null,
+      /** 0x1*/ {
+        instr: "LXI SP,",
+        action: () => this.LXI.call(this, "SP"),
+        len: 3,
+      },
       /** 0x2*/ {
         instr: "STA",
         len: 3,
         action: this.sta,
       },
       /** 0x3*/ null,
-      /** 0x4*/ null,
+      /** 0x4*/ {
+        instr: "INR (HL)",
+        len: 1,
+        action: () => this.inr.call(this, "M"),
+      },
       /** 0x5*/ { instr: "DCR (HL)", len: 1, action: this.dcrM },
       { instr: "MVI (HL)", len: 2, action: () => this.mvi.call(this, "M") },
       null,
@@ -1360,7 +1682,25 @@ class Cpu {
       { instr: "XRA (HL)", action: () => this.xraM.call(this), len: 1 },
       { instr: "XRA A", action: () => this.xraR.call(this, "A"), len: 1 },
     ],
-    /** 0xb */ [],
+    /** 0xb */ [
+      { instr: "ORA B", action: () => this.ora.call(this, "B"), len: 1 },
+      { instr: "ORA C", action: () => this.ora.call(this, "C"), len: 1 },
+      { instr: "ORA D", action: () => this.ora.call(this, "D"), len: 1 },
+      { instr: "ORA E", action: () => this.ora.call(this, "E"), len: 1 },
+      { instr: "ORA H", action: () => this.ora.call(this, "H"), len: 1 },
+      { instr: "ORA L", action: () => this.ora.call(this, "L"), len: 1 },
+      { instr: "ORA (HL)", action: () => this.ora.call(this, "M"), len: 1 },
+      { instr: "ORA A", action: () => this.ora.call(this, "A"), len: 1 },
+
+      { instr: "CMP B", action: () => this.cmp.call(this, "B"), len: 1 },
+      { instr: "CMP C", action: () => this.cmp.call(this, "C"), len: 1 },
+      { instr: "CMP D", action: () => this.cmp.call(this, "D"), len: 1 },
+      { instr: "CMP E", action: () => this.cmp.call(this, "E"), len: 1 },
+      { instr: "CMP H", action: () => this.cmp.call(this, "H"), len: 1 },
+      { instr: "CMP L", action: () => this.cmp.call(this, "L"), len: 1 },
+      { instr: "CMP (HL)", action: () => this.cmp.call(this, "M"), len: 1 },
+      { instr: "CMP A", action: () => this.cmp.call(this, "A"), len: 1 },
+    ],
     /** 0xc */ [
       { instr: "RNZ", action: this.rnz, len: 1 },
       { instr: "POP BC", action: () => this.pop.call(this, "B", "C"), len: 1 },
@@ -1404,7 +1744,7 @@ class Cpu {
       /** 0xf */ null,
     ],
     /** 0xd */ [
-      /** 0x0 */ null,
+      /** 0x0 */ { instr: "RNC", action: this.rnc, len: 1 },
       /** 0x1 */ {
         instr: "POP DE",
         action: () => this.pop.call(this, "D", "E"),
@@ -1415,17 +1755,17 @@ class Cpu {
         action: this.jnc,
         len: 3,
       },
-      /** 0x3 */ null,
+      /** 0x3 */ { instr: "OUT", action: this.out, len: 2 },
       null,
       /** 0x5 */ {
         instr: "PUSH DE",
         action: () => this.pushXX.call(this, "D", "E"),
         len: 1,
       },
-      /** 0x6 */ null,
+      /** 0x6 */ { instr: "SUI", action: this.sui, len: 2 },
       /** 0x7 */ null,
       /** 0x8 */ null,
-      /** 0x9 */ null,
+      /** 0x9 */ { instr: "RC", action: this.rc, len: 1 },
       /** 0xa */ {
         instr: "JC",
         action: this.jc,
@@ -1442,14 +1782,14 @@ class Cpu {
       /**0xf */ null,
     ],
     /** 0xe */ [
-      null,
+      { instr: "RPO", action: this.rpo, len: 1 },
       /** 0x1 */ {
         instr: "POP HL",
         action: () => this.pop.call(this, "H", "L"),
         len: 1,
       },
       null,
-      null,
+      { instr: "XTHL", action: this.xthl, len: 1 },
       null,
       {
         instr: "PUSH HL",
@@ -1458,8 +1798,8 @@ class Cpu {
       },
       { instr: "ANI", action: this.ani, len: 2 },
       null,
-      null,
-      null,
+      { instr: "RPE", action: this.rpe, len: 1 },
+      { instr: "PCHL", action: this.pchl, len: 1 },
       null,
       { instr: "XCHG", action: this.xchg, len: 1 },
       null,
