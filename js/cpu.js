@@ -29,6 +29,21 @@ class Cpu {
     this._isHalted = false;
   }
 
+  get registers() {
+    return {
+      A: this.A,
+      B: this.B,
+      C: this.C,
+      D: this.D,
+      E: this.E,
+      H: this.H,
+      L: this.L,
+      SP: this.SP,
+      PC: this.PC,
+      F: this.F,
+    };
+  }
+
   get SignFlag() {
     return this.F & 0x80;
   }
