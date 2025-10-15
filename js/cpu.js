@@ -1314,7 +1314,7 @@ class Cpu {
    * @param {number} exp RST Vector
    */
   rst(exp) {
-    if (this._isInterruptEnable) {
+    if (!this._isInterruptEnable) {
       this.PC += 1;
     } else {
       this.memory.writeByte(this.SP - 1, (this.PC >> 8) & 0xff);
@@ -1326,10 +1326,12 @@ class Cpu {
   }
 
   rst1() {
-    return this.__instructions[0xc][0xf].action.call(this);
+    this.__instructions[0xc][0xf].action.call(this);
+    if (!this._isInterruptEnable) this.PC -= 1;
   }
   rst2() {
-    return this.__instructions[0xd][0x7].action.call(this);
+    this.__instructions[0xd][0x7].action.call(this);
+    if (!this._isInterruptEnable) this.PC -= 1;
   }
 
   execute() {
@@ -1572,7 +1574,7 @@ class Cpu {
       { instr: "DCR A", action: () => this.dcr("A"), len: 1 },
       {
         instr: "MVI A",
-        action: () => this.mvi.call(this),
+        action: () => this.mvi.call(this, "A"),
         len: 2,
       },
       { instr: "CMC", action: this.cmc, len: 1 },
@@ -2047,7 +2049,7 @@ class Cpu {
       /** 0x6 */ { instr: "SUI", action: this.sui, len: 2 },
       /** 0x7 */ { instr: "RST 2", action: () => this.rst(0x10), len: 1 },
       /** 0x8 */ { instr: "RC", action: this.rc, len: 1 },
-      /** 0x9 */ null,
+      /** 0x9 */ { instr: "RET", action: this.ret, len: 1 },
       /** 0xa */ {
         instr: "JC",
         action: this.jc,
