@@ -20,7 +20,7 @@ class Cpu {
    */
   F = 0;
 
-  _isInterrupted = false;
+  _isInterruptEnable = false;
 
   _devices = new Map();
 
@@ -218,7 +218,7 @@ class Cpu {
       this.SignFlag = 1;
     } else this.SignFlag = 0;
 
-    if (result === 0) {
+    if ((result & 0xff) === 0) {
       this.ZeroFlag = 1;
     } else this.ZeroFlag = 0;
 
@@ -354,7 +354,7 @@ class Cpu {
     this.SignFlag = value > 0x7f ? 1 : 0;
     this.CarryFlag = 0;
     this.AuxCarryFlag = 0;
-    this.ParityFlag = this.testParity(result);
+    this.ParityFlag = this.testParity(value);
   }
 
   _ana(value) {
@@ -525,6 +525,7 @@ class Cpu {
     this.memory.writeByte(this.SP - 2, this[r2]);
     this.SP -= 2;
     this.PC += 1;
+    return 11;
   }
 
   sta() {
@@ -558,8 +559,8 @@ class Cpu {
   }
   call() {
     const addr = this.memory.read16(this.PC + 1);
-    const h = this.PC >> 8;
-    const l = this.PC & 0xff;
+    const h = (this.PC + 3) >> 8;
+    const l = (this.PC + 3) & 0xff;
     this.memory.writeByte(this.SP - 1, h);
     this.memory.writeByte(this.SP - 2, l);
     this.SP -= 2;
@@ -756,7 +757,7 @@ class Cpu {
    * Enable Interrupts
    */
   ei() {
-    this._isInterrupted = true;
+    this._isInterruptEnable = true;
     this.PC += 1;
     return 4;
   }
@@ -765,7 +766,7 @@ class Cpu {
    * Disable Interrupts
    */
   di() {
-    this._isInterrupted = false;
+    this._isInterruptEnable = false;
   }
 
   /**
@@ -867,12 +868,12 @@ class Cpu {
       value = this[reg];
     }
     const carry = this.CarryFlag;
-    this._sub(value, 1);
+    let res = this._sub(value, 1);
     this.CarryFlag = carry; // restore carry
     if (reg === "M") {
-      this.memory.writeByte(this.HL, value);
+      this.memory.writeByte(this.HL, res);
     } else {
-      this[reg] = value;
+      this[reg] = res;
     }
 
     this.PC += 1;
@@ -1313,25 +1314,33 @@ class Cpu {
    * @param {number} exp RST Vector
    */
   rst(exp) {
-    this.memory.writeByte(this.SP - 1, (this.PC >> 8) & 0xff);
-    this.memory.writeByte(this.SP - 2, this.PC & 0xff);
-    this.SP -= 2;
-    this.PC = exp;
+    if (this._isInterruptEnable) {
+      this.PC += 1;
+    } else {
+      this.memory.writeByte(this.SP - 1, (this.PC >> 8) & 0xff);
+      this.memory.writeByte(this.SP - 2, this.PC & 0xff);
+      this.SP -= 2;
+      this.PC = exp;
+    }
+    return 11;
+  }
+
+  rst1() {
+    return this.__instructions[0xc][0xf].action.call(this);
+  }
+  rst2() {
+    return this.__instructions[0xd][0x7].action.call(this);
   }
 
   execute() {
     const opcode = this.memory.readByte(this.PC);
-    console.log(`Current Address: ${this.PC.toString(16).padStart(4, "0")}`);
+    console.log(this.disassemble());
     const h = (opcode >> 4) & 0x0f;
     const l = opcode & 0x0f;
     const op = this.__instructions[h][l];
     if (!op) {
       throw new Error(`Invalid opcode: ${opcode.toString(16)}`);
     }
-
-    console.log(
-      `Executing: ${typeof op.op === "string" ? op.op : op.op.bind(this)()}`
-    );
     return op.action.call(this);
   }
 
@@ -1998,7 +2007,7 @@ class Cpu {
         action: this.adi,
         len: 2,
       },
-      /** 0x7 */ { instr: "RST 0", action: () => this.rst(0x0000), len: 1 },
+      /** 0x7 */ { instr: "RST 0", action: () => this.rst(0x00), len: 1 },
       { instr: "RZ", action: this.rz, len: 1 },
       { instr: "RET", action: this.ret, len: 1 },
       {
@@ -2107,4 +2116,60 @@ class Cpu {
       /** 0xf */ { instr: "RST 5", action: () => this.rst(0x38), len: 1 },
     ],
   ];
+
+  disassemble() {
+    const opcode = this.memory.readByte(this.PC);
+    if (opcode == undefined) {
+      throw new Error(
+        "Opcode is undefined. Here is the stack track: " +
+          `PC: ${this.PC}\nSP: ${this.SP}\n${this.memory.length}`
+      );
+    }
+    const h = (opcode >> 4) & 0x0f;
+    const l = opcode & 0x0f;
+    const op = this.__instructions[h][l];
+    if (!op) {
+      throw new Error(`Invalid opcode: ${opcode.toString(16)}`);
+    }
+
+    const argsLen = op?.len ? op.len - 1 : 0;
+    let args = [];
+
+    let mnemonic = (function (that, instr, argsLen) {
+      let arg;
+      switch (argsLen) {
+        case 1:
+          arg = that.memory.readByte(that.PC + 1);
+          break;
+        case 2:
+          arg = that.memory.read16(that.PC + 1);
+          break;
+        default:
+          break;
+      }
+
+      if (arg !== undefined) {
+        arg =
+          "$" +
+          arg
+            .toString(16)
+            .padStart(argsLen * 2, "0")
+            .toUpperCase();
+      } else arg = "";
+
+      return instr + " " + arg;
+    })(this, op.instr, argsLen);
+
+    if (argsLen) {
+      args = this.memory.readBytes(this.PC + 1, argsLen);
+      args = args.map((arg) => arg.toString(16).padStart(2, "0").toUpperCase());
+    }
+
+    const line = `${this.PC.toString(16).padStart(4, "0")}: ${opcode
+      .toString(16)
+      .padStart(2, "0")
+      .toUpperCase()} ${args.join(" ").padEnd(8, " ")} ${mnemonic}`;
+
+    return line;
+  }
 }
