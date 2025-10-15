@@ -4,8 +4,9 @@
 
   const WIDTH = (canvas.width = 256);
   const HEIGHT = (canvas.height = 224);
+  const CPU_CLOCK_HZ = 2_000_000;
   const FPS = 60;
-  const CYCLES_PER_FRAME = 33333;
+  const CYCLES_PER_FRAME = CPU_CLOCK_HZ / FPS;
 
   const romInput = document.getElementById("rom");
   const runner = document.getElementById("runner");
@@ -13,86 +14,58 @@
   const cpu = new Cpu({ memory });
 
   const video = memory.readVideoRAM();
-  let cyclesInAFrame = 0;
-  let run = true;
-  let interruptCount = 0;
+
   let prevTime = 0;
-  let time = 0;
-  let breakpoint = 0x0a93;
-  let debug = false;
-  let step = false;
+  let interruptFlip = 0;
+  const r = document.getElementById("registers");
   const render = (ms) => {
-    const delta = ms - prevTime;
+    const dt = (ms - prevTime) / 1000;
+    // console.log("FPS", 1 / dt);
     prevTime = ms;
-    // time += delta;
-    // if (time <= 1 / 60) {
-    //   run = false;
-    // } else {
-    //   time = 0;
-    //   run = true;
-    // }
+    let cyclesThisFrame = 0;
 
-    while (
-      step ||
-      (run && !step) ||
-      (debug && (cpu.registers.PC !== breakpoint || (run = false)))
-    ) {
-      step = false;
-      let instr = cpu.disassemble();
-      cyclesInAFrame += cpu.execute();
-      if (Number.isNaN(cyclesInAFrame)) {
-        console.log("NaN", instr);
-        run = false;
-        break;
-      }
-      if (cyclesInAFrame >= CYCLES_PER_FRAME / 2 && interruptCount === 0) {
-        console.log("RST 1 signaled");
-        interruptCount++;
-        cpu.rst1();
-        break;
-      } else if (cyclesInAFrame >= CYCLES_PER_FRAME && interruptCount === 1) {
-        console.log("RST 2 signaled");
-        interruptCount++;
-        cpu.rst2();
-        break;
+    while (cyclesThisFrame < CYCLES_PER_FRAME) {
+      cyclesThisFrame += cpu.execute();
+
+      if (
+        (interruptFlip === 0 && cyclesThisFrame >= CYCLES_PER_FRAME / 2) ||
+        (interruptFlip === 1 && cyclesThisFrame >= CYCLES_PER_FRAME)
+      ) {
+        interruptFlip === 0 ? cpu.rst1() : cpu.rst2();
+        interruptFlip ^= 1;
       }
     }
 
-    let r;
-    (r = document.getElementById("registers")).innerText = Object.entries(
-      cpu.registers
-    )
-      .map(
-        ([k, v]) =>
-          `${k.padStart(2, " ")}: ${v
-            .toString(16)
-            .toUpperCase()
-            .padStart(4, "0")}\t${v.toString(2).padStart(16, "0")}`
-      )
-      .join("\n");
-
-    r.innerText = r.innerText + "\nisrDelay: " + memory.readByte(0x20c0);
-
+    r.innerText =
+      Object.entries(cpu.registers)
+        .map(
+          ([k, v]) =>
+            `${k.padStart(2, " ")}: ${v
+              .toString(16)
+              .toUpperCase()
+              .padStart(4, "0")}\t${v.toString(2).padStart(16, "0")}`
+        )
+        .join("\n") +
+      "\nisrDelay: " +
+      memory.readByte(0x20c0);
     // paint screen
-    for (let ii = 0; ii < video.length; ii++) {
-      const byte = video[ii];
-      const x = ii % 32;
-      const y = Math.floor(ii / 32);
-      let i = 0;
-      while (i < 0x8) {
-        const bit = (byte >> i) & 1;
-        if (bit) {
-          ctx.fillStyle = "green";
-        } else ctx.fillStyle = "black";
-        ctx.fillRect(x * 8 + i, y, 1, 1);
-        i++;
+    const img = ctx.createImageData(WIDTH, HEIGHT);
+    const data = img.data; // RGBA array
+    for (let i = 0; i < video.length; i++) {
+      const byte = video[i];
+      const y = Math.floor(i / 32);
+      const xBase = (i % 32) * 8;
+      for (let b = 0; b < 8; b++) {
+        const on = (byte >> b) & 1;
+        const idx = (y * WIDTH + xBase + b) * 4;
+        const val = on ? 0x00ff00 : 0x000000;
+        data[idx] = (val >> 16) & 0xff;
+        data[idx + 1] = (val >> 8) & 0xff;
+        data[idx + 2] = val & 0xff;
+        data[idx + 3] = 0xff;
       }
     }
-
-    if (interruptCount == 2) {
-      interruptCount = 0;
-      cyclesInAFrame = 0;
-    }
+    ctx.putImageData(img, 0, 0);
 
     requestAnimationFrame(render);
   };
