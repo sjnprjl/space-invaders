@@ -711,6 +711,22 @@ class Cpu {
     return 4;
   }
 
+  /**
+   * Rotate Left Through Carry
+   *
+   * The content of the accumulator is rotated left one
+   * position through the CY flag. The low order bit is set
+   * equal to the CY flag and the CY flag is set to the
+   * value shifted out of the high order bit. Only the CY
+   * flag is affected.
+   */
+  ral() {
+    this.CarryFlag = this.A & 0x80;
+    this.A = ((this.A << 1) | this.CarryFlag) & 0xff;
+    this.PC += 1;
+    return 4;
+  }
+
   jc() {
     const addr = this.memory.read16(this.PC + 1);
     if (this.CarryFlag) {
@@ -834,6 +850,8 @@ class Cpu {
    */
   di() {
     this._isInterruptEnable = false;
+    this.PC += 1;
+    return 4;
   }
 
   /**
@@ -854,8 +872,13 @@ class Cpu {
    * Increment register pair
    */
   inx(rp) {
-    const value = (this[rp] + 1) & 0xffff;
-    this[rp] = value;
+    let value;
+    if (rp === "SP") {
+      value = this.memory.readByte(this.SP);
+    } else value = (this[rp] + 1) & 0xffff;
+    if (rp === "SP") {
+      this.memory.writeByte(this.SP, value);
+    } else this[rp] = value;
     this.PC += 1;
     return 5;
   }
@@ -869,8 +892,11 @@ class Cpu {
    * Condition bits affected: None
    */
   dcx(rp) {
-    const value = (this[rp] - 1) & 0xffff;
-    this[rp] = value;
+    let value;
+    if (rp === "SP") value = this.memory.readByte(this.SP);
+    else value = (this[rp] - 1) & 0xffff;
+    if (rp === "SP") this.memory.writeByte(this.SP, value);
+    else this[rp] = value;
     this.PC += 1;
     return 5;
   }
@@ -1004,6 +1030,23 @@ class Cpu {
   }
 
   /**
+   * Add Immediate with Carry
+   *
+   * The byte of immediate data is added to
+   * the contents of the accumulator plus the contents of the
+   * carry bit.
+   * Condition bits affected: Carry, Sign, Zero, Parity,
+   * Auxiliary Carry
+   */
+  aci() {
+    const imm = this.memory.readByte(this.PC + 1);
+    const res = this._add2(imm, this.CarryFlag ? 1 : 0);
+    this._add(res);
+    this.PC += 2;
+    return 7;
+  }
+
+  /**
    * Double Add
    *
    * @description
@@ -1077,6 +1120,11 @@ class Cpu {
     return 18;
   }
 
+  sphl() {
+    this.SP = this.HL;
+    this.PC += 1;
+    return 5;
+  }
   /**
    * Load Program Counter
    *
@@ -1149,6 +1197,14 @@ class Cpu {
     this.PC += 3;
     return 11;
   }
+  /**
+   * Call If Carry
+   */
+  cc() {
+    if (this.CarryFlag) return this.call();
+    this.PC += 3;
+    return 11;
+  }
 
   /**
    * Call if minus
@@ -1160,7 +1216,40 @@ class Cpu {
    * Condition bits affected: None
    */
   cm() {
+    if (this.SignFlag) return this.call();
+    this.PC += 3;
+    return 11;
+  }
+
+  /**
+   * Call if plus
+   *
+   * @description
+   * If the Sign bit is zero (indicating a plus result), a call operation is
+   * performed to subroutine sub.
+   *
+   * Condition bits affected: None
+   */
+  cp() {
     if (!this.SignFlag) return this.call();
+    this.PC += 3;
+    return 11;
+  }
+
+  /**
+   *
+   * Call if Parity Odd
+   *
+   * @description
+   *
+   * If the Parity bit is zero (indicating odd parity), a call operation is
+   * performed to subroutine sub.
+   *
+   * Condition bits affected: None
+   *
+   */
+  cpo() {
+    if (!this.ParityFlag) return this.call();
     this.PC += 3;
     return 11;
   }
@@ -1273,6 +1362,20 @@ class Cpu {
   }
 
   /**
+   * Jump if positive
+   *
+   * @description
+   * If the Sign bit is zero (indicating a positive result),
+   * program execution continues at the memory address adr.
+   * Condition bits affected: None
+   */
+  jp() {
+    if (!this.SignFlag) this.PC = this.memory.read16(this.PC + 1);
+    else this.PC += 3;
+    return 10;
+  }
+
+  /**
    * Jump If Parity Odd
    *
    * @description
@@ -1281,6 +1384,19 @@ class Cpu {
    */
   jpo() {
     if (!this.ParityFlag) this.PC = this.memory.read16(this.PC + 1);
+    else this.PC += 3;
+    return 10;
+  }
+
+  /**
+   * Jump If Parity Even
+   *
+   * @description
+   * If the Parity bit is one (indicating a result with even parity), program
+   * execution continues at the memory address adr.
+   */
+  jpe() {
+    if (this.ParityFlag) this.PC = this.memory.read16(this.PC + 1);
     else this.PC += 3;
     return 10;
   }
@@ -1483,6 +1599,9 @@ class Cpu {
   _MVI_D() {
     return this.mvi("D");
   }
+  _RAL() {
+    return this.ral();
+  }
   _DAD_DE() {
     return this.dad("DE");
   }
@@ -1537,6 +1656,10 @@ class Cpu {
   _INR_L() {
     return this.inr("L");
   }
+
+  _DCR_L() {
+    return this.dcr("L");
+  }
   _MVI_L() {
     return this.mvi("L");
   }
@@ -1548,6 +1671,9 @@ class Cpu {
   }
   _STA() {
     return this.sta();
+  }
+  _INX_SP() {
+    return this.inx("SP");
   }
   _INR_HL() {
     return this.inr("M");
@@ -1566,6 +1692,9 @@ class Cpu {
   }
   _LDA() {
     return this.lda();
+  }
+  _DCX_SP() {
+    return this.dcx("SP");
   }
   _INR_A() {
     return this.inr("A");
@@ -2002,6 +2131,9 @@ class Cpu {
   _CALL() {
     return this.call();
   }
+  _ACI() {
+    return this.aci();
+  }
   _RST_1() {
     return this.rst(0x08);
   }
@@ -2038,6 +2170,13 @@ class Cpu {
   _IN() {
     return this.in();
   }
+
+  /**
+   * Call If Carry
+   */
+  _CC() {
+    return this.cc();
+  }
   _SBI() {
     return this.sbi();
   }
@@ -2056,6 +2195,10 @@ class Cpu {
   _XTHL() {
     return this.xthl();
   }
+
+  _CPO() {
+    return this.cpo();
+  }
   _PUSH_HL() {
     return this.pushXX("H", "L");
   }
@@ -2070,6 +2213,10 @@ class Cpu {
   }
   _PCHL() {
     return this.pchl();
+  }
+
+  _JPE() {
+    return this.jpe();
   }
   _XCHG() {
     return this.xchg();
@@ -2089,6 +2236,15 @@ class Cpu {
   _POP_AF() {
     return this.pop("A", "F");
   }
+  _JP() {
+    return this.jp();
+  }
+  _DI() {
+    return this.di();
+  }
+  _CP() {
+    return this.cp();
+  }
   _PUSH_AF() {
     return this.pushXX("A", "F");
   }
@@ -2100,6 +2256,9 @@ class Cpu {
   }
   _RM() {
     return this.rm();
+  }
+  _SPHL() {
+    return this.sphl();
   }
   _JM() {
     return this.jm();
@@ -2147,7 +2306,7 @@ class Cpu {
     I[0x14] = op("INR D", this._INR_D, 1);
     I[0x15] = op("DCR D", this._DCR_D, 1);
     I[0x16] = op("MVI D,", this._MVI_D, 2);
-    I[0x17] = null;
+    I[0x17] = op("RAL", this._RAL, 1);
     I[0x18] = op("NOP", this._NOP, 1);
     I[0x19] = op("DAD DE", this._DAD_DE, 1);
     I[0x1a] = op("LDAX DE", this._LDAX_DE, 1);
@@ -2169,13 +2328,13 @@ class Cpu {
     I[0x2a] = op("LHLD", this._LHLD, 3);
     I[0x2b] = op("DCX HL", this._DCX_HL, 1);
     I[0x2c] = op("INR L", this._INR_L, 1);
-    I[0x2d] = null;
+    I[0x2d] = op("DCR L", this._DCR_L, 1);
     I[0x2e] = op("MVI L,", this._MVI_L, 2);
     I[0x2f] = op("CMA", this._CMA, 1);
     I[0x30] = op("NOP", this._NOP, 1);
     I[0x31] = op("LXI SP,", this._LXI_SP, 3);
     I[0x32] = op("STA", this._STA, 3);
-    I[0x33] = null;
+    I[0x33] = op("INX SP", this._INX_SP, 1);
     I[0x34] = op("INR (HL)", this._INR_HL, 1);
     I[0x35] = op("DCR (HL)", this._DCR_HL, 1);
     I[0x36] = op("MVI (HL)", this._MVI_HL, 2);
@@ -2183,7 +2342,7 @@ class Cpu {
     I[0x38] = op("NOP", this._NOP, 1);
     I[0x39] = op("DAD SP", this._DAD_SP, 1);
     I[0x3a] = op("LDA", this._LDA, 3);
-    I[0x3b] = null;
+    I[0x3b] = op("DCX SP", this._DCX_SP, 1);
     I[0x3c] = op("INR A", this._INR_A, 1);
     I[0x3d] = op("DCR A", this._DCR_A, 1);
     I[0x3e] = op("MVI A", this._MVI_A, 2);
@@ -2327,10 +2486,10 @@ class Cpu {
     I[0xc8] = op("RZ", this._RZ, 1);
     I[0xc9] = op("RET", this._RET, 1);
     I[0xca] = op("JZ", this._JZ, 3);
-    I[0xcb] = null;
+    I[0xcb] = op("JMP", this._JMP, 3);
     I[0xcc] = op("CZ", this._CZ, 3);
     I[0xcd] = op("CALL", this._CALL, 3);
-    I[0xce] = null;
+    I[0xce] = op("ACI", this._ACI, 2);
     I[0xcf] = op("RST 1", this._RST_1, 1);
     I[0xd0] = op("RNC", this._RNC, 1);
     I[0xd1] = op("POP DE", this._POP_DE, 1);
@@ -2344,40 +2503,40 @@ class Cpu {
     I[0xd9] = op("RET", this._RET, 1);
     I[0xda] = op("JC", this._JC, 3);
     I[0xdb] = op("IN", this._IN, 2);
-    I[0xdc] = null;
-    I[0xdd] = null;
+    I[0xdc] = op("CC", this._CC, 3);
+    I[0xdd] = op("CALL", this._CALL, 3);
     I[0xde] = op("SBI", this._SBI, 2);
     I[0xdf] = op("RST 3", this._RST_3, 1);
     I[0xe0] = op("RPO", this._RPO, 1);
     I[0xe1] = op("POP HL", this._POP_HL, 1);
     I[0xe2] = op("JPO", this._JPO, 3);
     I[0xe3] = op("XTHL", this._XTHL, 1);
-    I[0xe4] = null;
+    I[0xe4] = op("CPO", this._CPO, 3);
     I[0xe5] = op("PUSH HL", this._PUSH_HL, 1);
     I[0xe6] = op("ANI", this._ANI, 2);
     I[0xe7] = op("RST 4", this._RST_4, 1);
     I[0xe8] = op("RPE", this._RPE, 1);
     I[0xe9] = op("PCHL", this._PCHL, 1);
-    I[0xea] = null;
+    I[0xea] = op("JPE", this._JPE, 3);
     I[0xeb] = op("XCHG", this._XCHG, 1);
     I[0xec] = op("CPE", this._CPE, 3);
-    I[0xed] = null;
+    I[0xed] = op("CALL", this._CALL, 3);
     I[0xee] = op("XRI", this._XRI, 2);
     I[0xef] = op("RST 5", this._RST_5, 1);
     I[0xf0] = op("RP", this._RP, 1);
     I[0xf1] = op("POP AF", this._POP_AF, 1);
-    I[0xf2] = null;
-    I[0xf3] = null;
-    I[0xf4] = null;
+    I[0xf2] = op("JP", this._JP, 3);
+    I[0xf3] = op("DI", this._DI, 1);
+    I[0xf4] = op("CP", this._CP, 3);
     I[0xf5] = op("PUSH AF", this._PUSH_AF, 1);
     I[0xf6] = op("ORI", this._ORI, 2);
     I[0xf7] = op("RST 6", this._RST_6, 1);
     I[0xf8] = op("RM", this._RM, 1);
-    I[0xf9] = null;
+    I[0xf9] = op("SPHL", this._SPHL, 1);
     I[0xfa] = op("JM", this._JM, 3);
     I[0xfb] = op("EI", this._EI, 1);
     I[0xfc] = op("CM", this._CM, 3);
-    I[0xfd] = null;
+    I[0xfd] = op("CALL", this._CALL, 3);
     I[0xfe] = op("CPI", this._CPI, 2);
     I[0xff] = op("RST 7", this._RST_7, 1);
     return I;
