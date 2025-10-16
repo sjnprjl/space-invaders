@@ -999,9 +999,15 @@ class Cpu {
    * Condition bits affected: None
    */
   xthl() {
-    const tempSP = this.SP;
-    this.SP = this.HL;
-    this.HL = tempSP;
+    const forL = this.memory.readByte(this.SP);
+    const forH = this.memory.readByte(this.SP + 1);
+
+    this.memory.readByte(this.SP, this.L);
+    this.memory.readByte(this.SP + 1, this.H);
+
+    this.L = forL;
+    this.H = forH;
+
     this.PC += 1;
     return 18;
   }
