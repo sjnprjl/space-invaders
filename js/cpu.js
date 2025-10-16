@@ -22,13 +22,76 @@ class Cpu {
 
   _isInterruptEnable = false;
 
-  _devices = new Map();
+  _io = new Uint8Array(0x7);
 
   constructor({ memory }) {
     this.memory = memory;
     this._isHalted = false;
 
     this._instructionsTable = this._buildInstructionsTable();
+
+    // INPUTS
+    // port 0
+    /**
+     *                 +-------- ? tied to demux port 7 ?
+     *                 |+------- Right
+     *                 ||+------ Left
+     *                 |||+----- Fire
+     *                 ||||+---- Always 1
+     *                 |||||+--- Always 1
+     *                 ||||||+-- Always 1
+     *                 |||||||+- DIP4 (Seems to be self-test-request read at power up)
+     */ //             ||||||||
+    this._io[0x00] = 0b00001110;
+
+    // port 1
+
+    /**
+     *                 +-------- Not Connected
+     *                 |+------- 1P right (1 if pressed)
+     *                 ||+------ 1P left (1 if pressed)
+     *                 |||+----- 1P shot (1 if pressed)
+     *                 ||||+---- Always 1
+     *                 |||||+--- 1P start (1 if pressed)
+     *                 ||||||+-- 2P start (1 if pressed)
+     *                 |||||||+- Credit (1 if deposit)
+     */ //             ||||||||
+    this._io[0x01] = 0b00001000;
+
+    // port 2
+    /**
+     *                 +-------- DIP7 Coin Info displayed in demo screen 0=ON
+     *                 |+------- P2 Right (1 if pressed)
+     *                 ||+------ P2 Left (1 if pressed)
+     *                 |||+----- P2 Shot (1 if pressed)
+     *                 ||||+---- DIP6 0 = extra shift at 1500, 1 = extra shift at 2000
+     *                 |||||+--- Tilt
+     *                 ||||||+-- DIP5 01 = 4 Ships 11 = 6 Ships
+     *                 |||||||+- DIP3 00 = 3 Ships 10 = 5 Ships
+     */ //             ||||||||
+    this._io[0x02] = 0b00000000;
+
+    // port 3
+    this._io[0x3] = 0b00000000;
+
+    // OUTPUTS
+    // port 2 (bit 0,1, 2 Shift Amount)
+    // port 3 (discrete sounds)
+    /**
+     *                 +-------- NC (not wired)
+     *                 |+------- NC (not wired)
+     *                 ||+------ AMP enable
+     *                 |||+----- Extended Play
+     *                 ||||+---- Invader die
+     *                 |||||+--- Flash (player die)
+     *                 ||||||+-- Shot
+     *                 |||||||+- UFO (repeats)
+     */ //             ||||||||
+    // this._io[0x02] = 0b00000000;
+  }
+
+  get io() {
+    return this._io;
   }
 
   get registers() {
@@ -455,7 +518,7 @@ class Cpu {
     let aux = this.AuxCarryFlag;
     this.A = this._or(imm, this.A);
     this.AuxCarryFlag = aux;
-    this.PI += 2;
+    this.PC += 2;
     return 7;
   }
 
@@ -580,7 +643,7 @@ class Cpu {
    */
   in() {
     const descriptor = this.memory.readByte(this.PC + 1);
-    this.A = this._devices.get(descriptor);
+    this.A = this._io[descriptor];
     this.PC += 2;
     return 10;
   }
@@ -593,7 +656,7 @@ class Cpu {
    * to output device number expo
    */
   out() {
-    this._devices.set(this.memory.readByte(this.PC + 1), this.A);
+    this._io[this.memory.readByte(this.PC + 1)] = this.A;
     this.PC += 2;
     return 10;
   }
@@ -725,6 +788,8 @@ class Cpu {
     if ((this.A & 0xf0) > 0x90 || this.CarryFlag) {
       this._add(0x60);
     }
+    this.PC += 1;
+    return 4;
   }
 
   /**
@@ -1334,25 +1399,21 @@ class Cpu {
   }
 
   rst1() {
-    this.__instructions[0xc][0xf].action.call(this);
+    this._RST_1();
     if (!this._isInterruptEnable) this.PC -= 1;
   }
   rst2() {
-    this.__instructions[0xd][0x7].action.call(this);
+    this._RST_2();
     if (!this._isInterruptEnable) this.PC -= 1;
   }
 
   execute() {
     const opcode = this.memory.readByte(this.PC);
-    const decoded = this.disassemble(opcode);
-    const h = (opcode >> 4) & 0x0f;
-    const l = opcode & 0x0f;
-    const op = this.__instructions[h][l];
-    // const op = this._instructionsTable[opcode];
+    const op = this._instructionsTable[opcode];
     if (!op) {
       throw new Error(`Invalid opcode: ${opcode.toString(16)}`);
     }
-    return op.action.call(this);
+    return op.action();
   }
 
   /**
@@ -1489,13 +1550,13 @@ class Cpu {
     return this.sta();
   }
   _INR_HL() {
-    return this.inr("HL");
+    return this.inr("M");
   }
   _DCR_HL() {
-    return this.dcr("HL");
+    return this.dcrM();
   }
   _MVI_HL() {
-    return this.mvi("HL");
+    return this.mvi("M");
   }
   _STC() {
     return this.stc();
@@ -1729,7 +1790,7 @@ class Cpu {
     return this.addR("L");
   }
   _ADD_HL() {
-    return this.addM();
+    return this.addM.call(this);
   }
   _ADD_A() {
     return this.addR("A");
@@ -1753,7 +1814,7 @@ class Cpu {
     return this.addCR("L");
   }
   _ADDC_HL() {
-    return this.addCM();
+    return this.addCM.call(this);
   }
   _ADDC_A() {
     return this.addCR("A");
@@ -1777,34 +1838,34 @@ class Cpu {
     return this.subR("L");
   }
   _SUB_HL() {
-    return this.subM();
+    return this.subM.call(this);
   }
   _SUB_A() {
     return this.subR("A");
   }
   _SBB_B() {
-    return this.sbbR("B");
+    return this.subCR("B");
   }
   _SBB_C() {
-    return this.sbbR("C");
+    return this.subCR("C");
   }
   _SBB_D() {
-    return this.sbbR("D");
+    return this.subCR("D");
   }
   _SBB_E() {
-    return this.sbbR("E");
+    return this.subCR("E");
   }
   _SBB_H() {
-    return this.sbbR("H");
+    return this.subCR("H");
   }
   _SBB_L() {
-    return this.sbbR("L");
+    return this.subCR("L");
   }
   _SBB_HL() {
-    return this.sbbM();
+    return this.subCM.call(this);
   }
   _SBB_A() {
-    return this.sbbR("A");
+    return this.subCR("A");
   }
   _ANA_B() {
     return this.anaR("B");
@@ -1825,7 +1886,7 @@ class Cpu {
     return this.anaR("L");
   }
   _ANA_HL() {
-    return this.anaM();
+    return this.anaM.call(this);
   }
   _ANA_A() {
     return this.anaR("A");
@@ -1849,7 +1910,7 @@ class Cpu {
     return this.xraR("L");
   }
   _XRA_HL() {
-    return this.xraM();
+    return this.xraM.call(this);
   }
   _XRA_A() {
     return this.xraR("A");
@@ -1879,7 +1940,7 @@ class Cpu {
     return this.ora("A");
   }
   _CMP_B() {
-    return this.ora("B");
+    return this.cmp("B");
   }
   _CMP_C() {
     return this.cmp("C");
@@ -1918,7 +1979,7 @@ class Cpu {
     return this.cnz();
   }
   _PUSH_BC() {
-    return this.pushRR("B", "C");
+    return this.pushXX("B", "C");
   }
   _ADI() {
     return this.adi();
@@ -1942,7 +2003,7 @@ class Cpu {
     return this.call();
   }
   _RST_1() {
-    return this.rst(0x28);
+    return this.rst(0x08);
   }
   _RNC() {
     return this.rnc();
@@ -1960,7 +2021,7 @@ class Cpu {
     return this.cnc();
   }
   _PUSH_DE() {
-    return this.pushRR("D", "E");
+    return this.pushXX("D", "E");
   }
   _SUI() {
     return this.sui();
@@ -1970,9 +2031,6 @@ class Cpu {
   }
   _RC() {
     return this.rc();
-  }
-  _RET() {
-    return this.ret();
   }
   _JC() {
     return this.jc();
@@ -1999,7 +2057,7 @@ class Cpu {
     return this.xthl();
   }
   _PUSH_HL() {
-    return this.pushRR("H", "L");
+    return this.pushXX("H", "L");
   }
   _ANI() {
     return this.ani();
@@ -2032,7 +2090,7 @@ class Cpu {
     return this.pop("A", "F");
   }
   _PUSH_AF() {
-    return this.pushRR("A", "F");
+    return this.pushXX("A", "F");
   }
   _ORI() {
     return this.ori();
@@ -2058,12 +2116,11 @@ class Cpu {
   _RST_7() {
     return this.rst(0x38);
   }
-
   _buildInstructionsTable() {
     const I = [];
     const op = (instr, action, len) => ({
       instr,
-      action,
+      action: action.bind(this),
       len,
     });
 
@@ -2326,866 +2383,59 @@ class Cpu {
     return I;
   }
 
-  __instructions = [
-    /** 0x0 */ [
-      /** 0x0 */ { instr: "NOP", action: this.noop, len: 1 },
-      /** 0x1 */ {
-        instr: "LXI B",
-        action: () => this.LXI.call(this, "BC"),
-        len: 3,
-      },
-      /** 0x2 */ {
-        instr: "STAX B",
-        action: () => this.stax.call(this, "BC"),
-        len: 1,
-      },
-      /** 0x3 */ {
-        instr: "INX B",
-        action: () => this.inx.call(this, "BC"),
-        len: 1,
-      },
-      /** 0x4 */ {
-        instr: "INR B",
-        action: () => this.inr.call(this, "B"),
-        len: 1,
-      },
-      /** 0x5 */ {
-        instr: "DCR B",
-        action: () => this.dcr.call(this, "B"),
-        len: 1,
-      },
-      /** 0x6 */ {
-        instr: "MVI B,",
-        action: () => this.mvi.call(this, "B"),
-        len: 2,
-      },
-      /** 0x7 */ { instr: "RLC", action: this.rlc, len: 1 },
-      /** 0x8 */ { instr: "NOP", action: this.noop, len: 1 },
-      /** 0x9 */ {
-        instr: "DAD BC",
-        action: () => this.dad.call(this, "BC"),
-        len: 1,
-      },
-      /** 0xa */ {
-        instr: "LDAX B",
-        action: () => this.ldax.call(this, "BC"),
-        len: 1,
-      },
-      /** 0xb */ {
-        instr: "DCX BC",
-        action: () => this.dcx.call(this, "BC"),
-        len: 1,
-      },
-      /** 0xc */ {
-        instr: "INR C",
-        action: () => this.inr.call(this, "C"),
-        len: 1,
-      },
-      /** 0xd */ {
-        instr: "DCR C",
-        action: () => this.dcr.call(this, "C"),
-        len: 1,
-      },
-      /** 0xe */ {
-        instr: "MVI C,",
-        action: () => this.mvi.call(this, "C"),
-        len: 2,
-      },
-      /** 0xf */ { instr: "RRC", action: this.rrc, len: 1 },
-    ],
-    /** 0x1 */ [
-      /** 0x0 */ { instr: "NOP", action: this.noop, len: 1 },
-      /** 0x1 */ {
-        instr: "LXI D",
-        action: () => this.LXI.call(this, "DE"),
-        len: 3,
-      },
-      /** 0x2 */ {
-        instr: "STAX DE",
-        action: () => this.stax.call(this, "DE"),
-        len: 1,
-      },
-      /** 0x3 */ {
-        instr: "INX D",
-        action: () => this.inx.call(this, "DE"),
-        len: 1,
-      },
-      /** 0x4 */ {
-        instr: "INR D",
-        action: () => this.inr.call(this, "D"),
-        len: 1,
-      },
-      /** 0x5 */ {
-        instr: "DCR D",
-        action: () => this.dcr.call(this, "D"),
-        len: 1,
-      },
-      /** 0x6 */ {
-        instr: "MVI D,",
-        action: () => this.mvi.call(this, "D"),
-        len: 2,
-      },
-      /** 0x7 */ null,
-      /** 0x8 */ { instr: "NOP", action: this.noop, len: 1 },
-      /** 0x9 */ {
-        instr: "DAD DE",
-        action: () => this.dad.call(this, "DE"),
-        len: 1,
-      },
-      /** 0xa */ {
-        instr: "LDAX DE",
-        action: () => this.ldax.call(this, "DE"),
-        len: 1,
-      },
-      /** 0xb */ {
-        instr: "DCX DE",
-        action: () => this.dcx.call(this, "DE"),
-        len: 1,
-      },
-      /** 0xc */ {
-        instr: "INR E",
-        action: () => this.inr.call(this, "E"),
-        len: 1,
-      },
-      /** 0xd */ {
-        instr: "DCR E",
-        action: () => this.dcr.call(this, "E"),
-        len: 1,
-      },
-      /** 0xe */ {
-        instr: "MVI E,",
-        action: () => this.mvi.call(this, "E"),
-        len: 2,
-      },
-      /** 0xf */ { instr: "RAR", action: this.rar, len: 1 },
-    ],
-    /** 0x2 */ [
-      /** 0x0 */ { instr: "NOP", action: this.noop, len: 1 },
-      /** 0x1 */ {
-        instr: "LXI H",
-        action: () => this.LXI.call(this, "HL"),
-        len: 3,
-      },
-      /** 0x2 */ { instr: "SHLD", action: this.shld, len: 3 },
-      /** 0x3 */ {
-        instr: "INX HL",
-        action: () => this.inx.call(this, "HL"),
-        len: 1,
-      },
-      /** 0x4 */ {
-        instr: "INR H",
-        action: () => this.inr.call(this, "H"),
-        len: 1,
-      },
-      /** 0x5 */ {
-        instr: "DCR H",
-        action: () => this.dcr.call(this, "H"),
-        len: 1,
-      },
-      /** 0x6 */ {
-        instr: "MVI H,",
-        action: () => this.mvi.call(this, "H"),
-        len: 2,
-      },
-      /** 0x7 */ { instr: "DAA", action: this.daa, len: 1 },
-      /** 0x8 */ { instr: "NOP", action: this.noop, len: 1 },
-      /** 0x9 */ {
-        instr: "DAD HL",
-        action: () => this.dad.call(this, "HL"),
-        len: 2,
-      },
-      /** 0xa */ { instr: "LHLD", action: this.lhld, len: 3 },
-      /** 0xb */ {
-        instr: "DCX HL",
-        action: () => this.dcx.call(this, "HL"),
-        len: 1,
-      },
-      /** 0xc */ {
-        instr: "INR L",
-        action: () => this.inr.call(this, "L"),
-        len: 1,
-      },
-      /** 0xd */ null,
-      /** 0xe */ {
-        instr: "MVI L,",
-        action: () => this.mvi.call(this, "L"),
-        len: 2,
-      },
-      /** 0xf */ { instr: "CMA", action: this.cma, len: 1 },
-    ],
-    /** 0x3 */ [
-      /** 0x0*/ { instr: "NOP", action: this.noop, len: 1 },
-      /** 0x1*/ {
-        instr: "LXI SP,",
-        action: () => this.LXI.call(this, "SP"),
-        len: 3,
-      },
-      /** 0x2*/ {
-        instr: "STA",
-        len: 3,
-        action: this.sta,
-      },
-      /** 0x3*/ null,
-      /** 0x4*/ {
-        instr: "INR (HL)",
-        len: 1,
-        action: () => this.inr.call(this, "M"),
-      },
-      /** 0x5*/ { instr: "DCR (HL)", len: 1, action: this.dcrM },
-      /** 0x6 */ {
-        instr: "MVI (HL)",
-        len: 2,
-        action: () => this.mvi.call(this, "M"),
-      },
-      { instr: "STC", action: this.stc, len: 1 },
-      { instr: "NOP", action: this.noop, len: 1 },
-      { instr: "DAD SP", action: () => this.dad.call(this, "SP"), len: 1 },
-      {
-        instr: "LDA",
-        len: 3,
-        action: this.lda,
-      },
-      null,
-      { instr: "INR A", action: () => this.inr("A"), len: 1 },
-      { instr: "DCR A", action: () => this.dcr("A"), len: 1 },
-      {
-        instr: "MVI A",
-        action: () => this.mvi.call(this, "A"),
-        len: 2,
-      },
-      { instr: "CMC", action: this.cmc, len: 1 },
-    ],
-    /** 0x4 */ [
-      {
-        instr: "MOV B, B",
-        action: () => this.movRR.call(this, "B", "B"),
-        len: 1,
-      },
-      {
-        instr: "MOV B, C",
-        action: () => this.movRR.call(this, "B", "C"),
-        len: 1,
-      },
-      {
-        instr: "MOV B, D",
-        action: () => this.movRR.call(this, "B", "D"),
-        len: 1,
-      },
-      {
-        instr: "MOV B, E",
-        action: () => this.movRR.call(this, "B", "E"),
-        len: 1,
-      },
-      {
-        instr: "MOV B, H",
-        action: () => this.movRR.call(this, "B", "H"),
-        len: 1,
-      },
-      {
-        instr: "MOV B, L",
-        action: () => this.movRR.call(this, "B", "L"),
-        len: 1,
-      },
-      {
-        instr: "MOV B, (HL)",
-        action: () => this.movRM.call(this, "B"),
-        len: 1,
-      },
-      {
-        instr: "MOV B, A",
-        action: () => this.movRR.call(this, "B", "A"),
-        len: 1,
-      },
-      {
-        instr: "MOV C, B",
-        action: () => this.movRR.call(this, "C", "B"),
-        len: 1,
-      },
-      {
-        instr: "MOV C, C",
-        action: () => this.movRR.call(this, "C", "C"),
-        len: 1,
-      },
-      {
-        instr: "MOV C, D",
-        action: () => this.movRR.call(this, "C", "D"),
-        len: 1,
-      },
-      {
-        instr: "MOV C, E",
-        action: () => this.movRR.call(this, "C", "E"),
-        len: 1,
-      },
-      {
-        instr: "MOV C, H",
-        action: () => this.movRR.call(this, "C", "H"),
-        len: 1,
-      },
-      {
-        instr: "MOV C, L",
-        action: () => this.movRR.call(this, "C", "L"),
-        len: 1,
-      },
-      {
-        instr: "MOV C, (HL)",
-        action: () => this.movRM.call(this, "C"),
-        len: 1,
-      },
-      {
-        instr: "MOV C, A",
-        action: () => this.movRR.call(this, "C", "A"),
-        len: 1,
-      },
-    ],
-    /** 0x5 */ [
-      {
-        instr: "MOV D, B",
-        action: () => this.movRR.call(this, "D", "B"),
-        len: 1,
-      },
-      {
-        instr: "MOV D, C",
-        action: () => this.movRR.call(this, "D", "C"),
-        len: 1,
-      },
-      {
-        instr: "MOV D, D",
-        action: () => this.movRR.call(this, "D", "D"),
-        len: 1,
-      },
-      {
-        instr: "MOV D, E",
-        action: () => this.movRR.call(this, "D", "E"),
-        len: 1,
-      },
-      {
-        instr: "MOV D, H",
-        action: () => this.movRR.call(this, "D", "H"),
-        len: 1,
-      },
-      {
-        instr: "MOV D, L",
-        action: () => this.movRR.call(this, "D", "L"),
-        len: 1,
-      },
-      {
-        instr: "MOV D, (HL)",
-        action: () => this.movRM.call(this, "D"),
-        len: 1,
-      },
-      {
-        instr: "MOV D, A",
-        action: () => this.movRR.call(this, "D", "A"),
-        len: 1,
-      },
-      {
-        instr: "MOV E, B",
-        action: () => this.movRR.call(this, "E", "B"),
-        len: 1,
-      },
-      {
-        instr: "MOV E, C",
-        action: () => this.movRR.call(this, "E", "C"),
-        len: 1,
-      },
-      {
-        instr: "MOV E, D",
-        action: () => this.movRR.call(this, "E", "D"),
-        len: 1,
-      },
-      {
-        instr: "MOV E, E",
-        action: () => this.movRR.call(this, "E", "E"),
-        len: 1,
-      },
-      {
-        instr: "MOV E, H",
-        action: () => this.movRR.call(this, "E", "H"),
-        len: 1,
-      },
-      {
-        instr: "MOV E, L",
-        action: () => this.movRR.call(this, "E", "L"),
-        len: 1,
-      },
-      {
-        instr: "MOV E, (HL)",
-        action: () => this.movRM.call(this, "E"),
-        len: 1,
-      },
-      {
-        instr: "MOV E, A",
-        action: () => this.movRR.call(this, "E", "A"),
-        len: 1,
-      },
-    ], //
-    /** 0x6 */ [
-      {
-        instr: "MOV H, B",
-        action: () => this.movRR.call(this, "H", "B"),
-        len: 1,
-      },
-      {
-        instr: "MOV H, C",
-        action: () => this.movRR.call(this, "H", "C"),
-        len: 1,
-      },
-      {
-        instr: "MOV H, D",
-        action: () => this.movRR.call(this, "H", "D"),
-        len: 1,
-      },
-      {
-        instr: "MOV H, E",
-        action: () => this.movRR.call(this, "H", "E"),
-        len: 1,
-      },
-      {
-        instr: "MOV H, H",
-        action: () => this.movRR.call(this, "H", "H"),
-        len: 1,
-      },
-      {
-        instr: "MOV H, L",
-        action: () => this.movRR.call(this, "H", "L"),
-        len: 1,
-      },
-      {
-        instr: "MOV H, (HL)",
-        action: () => this.movRM.call(this, "H"),
-        len: 1,
-      },
-      {
-        instr: "MOV H, A",
-        action: () => this.movRR.call(this, "H", "A"),
-        len: 1,
-      },
-
-      {
-        instr: "MOV L, B",
-        action: () => this.movRR.call(this, "L", "B"),
-        len: 1,
-      },
-      {
-        instr: "MOV L, C",
-        action: () => this.movRR.call(this, "L", "C"),
-        len: 1,
-      },
-      {
-        instr: "MOV L, D",
-        action: () => this.movRR.call(this, "L", "D"),
-        len: 1,
-      },
-      {
-        instr: "MOV L, E",
-        action: () => this.movRR.call(this, "L", "E"),
-        len: 1,
-      },
-      {
-        instr: "MOV L, H",
-        action: () => this.movRR.call(this, "L", "H"),
-        len: 1,
-      },
-      {
-        instr: "MOV L, L",
-        action: () => this.movRR.call(this, "L", "L"),
-        len: 1,
-      },
-      {
-        instr: "MOV L, (HL)",
-        action: () => this.movRM.call(this, "L"),
-        len: 1,
-      },
-      {
-        instr: "MOV L, A",
-        action: () => this.movRR.call(this, "L", "A"),
-        len: 1,
-      },
-    ],
-    /** 0x7 */ [
-      {
-        instr: "MOV (HL), B",
-        action: () => this.movMR.call(this, "B"),
-        len: 1,
-      },
-      {
-        instr: "MOV (HL), C",
-        action: () => this.movMR.call(this, "C"),
-        len: 1,
-      },
-      {
-        instr: "MOV (HL), D",
-        action: () => this.movMR.call(this, "D"),
-        len: 1,
-      },
-      {
-        instr: "MOV (HL), E",
-        action: () => this.movMR.call(this, "E"),
-        len: 1,
-      },
-      {
-        instr: "MOV (HL), H",
-        action: () => this.movMR.call(this, "H"),
-        len: 1,
-      },
-      {
-        instr: "MOV (HL), L",
-        action: () => this.movMR.call(this, "L"),
-        len: 1,
-      },
-      { instr: "HLT", action: this.halt, len: 1 },
-      {
-        instr: "MOV (HL), A",
-        action: () => this.movMR.call(this, "A"),
-        len: 1,
-      },
-
-      {
-        instr: "MOV A, B",
-        action: () => this.movRR.call(this, "A", "B"),
-        len: 1,
-      },
-      {
-        instr: "MOV A, C",
-        action: () => this.movRR.call(this, "A", "C"),
-        len: 1,
-      },
-      {
-        instr: "MOV A, D",
-        action: () => this.movRR.call(this, "A", "D"),
-        len: 1,
-      },
-      {
-        instr: "MOV A, E",
-        action: () => this.movRR.call(this, "A", "E"),
-        len: 1,
-      },
-      {
-        instr: "MOV A, H",
-        action: () => this.movRR.call(this, "A", "H"),
-        len: 1,
-      },
-      {
-        instr: "MOV A, L",
-        action: () => this.movRR.call(this, "A", "L"),
-        len: 1,
-      },
-      {
-        instr: "MOV A, (HL)",
-        action: () => this.movRM.call(this, "A"),
-        len: 1,
-      },
-      {
-        instr: "MOV A, A",
-        action: () => this.movRR.call(this, "A", "A"),
-        len: 1,
-      },
-    ],
-    /** 0x8 */ [
-      { instr: "ADD B", action: () => this.addR.call(this, "B"), len: 1 },
-      { instr: "ADD C", action: () => this.addR.call(this, "C"), len: 1 },
-      { instr: "ADD D", action: () => this.addR.call(this, "D"), len: 1 },
-      { instr: "ADD E", action: () => this.addR.call(this, "E"), len: 1 },
-      { instr: "ADD H", action: () => this.addR.call(this, "H"), len: 1 },
-      { instr: "ADD L", action: () => this.addR.call(this, "L"), len: 1 },
-      { instr: "ADD (HL)", action: () => this.addM.call(this), len: 1 },
-      { instr: "ADD A", action: () => this.addR.call(this, "A"), len: 1 },
-
-      { instr: "ADDC B", action: () => this.addCR.call(this, "B"), len: 1 },
-      { instr: "ADDC C", action: () => this.addCR.call(this, "C"), len: 1 },
-      { instr: "ADDC D", action: () => this.addCR.call(this, "D"), len: 1 },
-      { instr: "ADDC E", action: () => this.addCR.call(this, "E"), len: 1 },
-      { instr: "ADDC H", action: () => this.addCR.call(this, "H"), len: 1 },
-      { instr: "ADDC L", action: () => this.addCR.call(this, "L"), len: 1 },
-      { instr: "ADDC (HL)", action: () => this.addCM.call(this), len: 1 },
-      { instr: "ADDC A", action: () => this.addCR.call(this, "A"), len: 1 },
-    ],
-    /** 0x9 */ [
-      { instr: "SUB B", action: () => this.subR.call(this, "B"), len: 1 },
-      { instr: "SUB C", action: () => this.subR.call(this, "C"), len: 1 },
-      { instr: "SUB D", action: () => this.subR.call(this, "D"), len: 1 },
-      { instr: "SUB E", action: () => this.subR.call(this, "E"), len: 1 },
-      { instr: "SUB H", action: () => this.subR.call(this, "H"), len: 1 },
-      { instr: "SUB L", action: () => this.subR.call(this, "L"), len: 1 },
-      { instr: "SUB (HL)", action: () => this.subM.call(this), len: 1 },
-      { instr: "SUB A", action: () => this.subR.call(this, "A"), len: 1 },
-
-      { instr: "SBB B", action: () => this.subCR.call(this, "B"), len: 1 },
-      { instr: "SBB C", action: () => this.subCR.call(this, "C"), len: 1 },
-      { instr: "SBB D", action: () => this.subCR.call(this, "D"), len: 1 },
-      { instr: "SBB E", action: () => this.subCR.call(this, "E"), len: 1 },
-      { instr: "SBB H", action: () => this.subCR.call(this, "H"), len: 1 },
-      { instr: "SBB L", action: () => this.subCR.call(this, "L"), len: 1 },
-      { instr: "SBB (HL)", action: () => this.subCM.call(this), len: 1 },
-      { instr: "SBB A", action: () => this.subCR.call(this, "A"), len: 1 },
-    ],
-    /** 0xa */ [
-      { instr: "ANA B", action: () => this.anaR.call(this, "B"), len: 1 },
-      { instr: "ANA C", action: () => this.anaR.call(this, "C"), len: 1 },
-      { instr: "ANA D", action: () => this.anaR.call(this, "D"), len: 1 },
-      { instr: "ANA E", action: () => this.anaR.call(this, "E"), len: 1 },
-      { instr: "ANA H", action: () => this.anaR.call(this, "H"), len: 1 },
-      { instr: "ANA L", action: () => this.anaR.call(this, "L"), len: 1 },
-      { instr: "ANA (HL)", action: () => this.anaM.call(this), len: 1 },
-      { instr: "ANA A", action: () => this.anaR.call(this, "A"), len: 1 },
-
-      { instr: "XRA B", action: () => this.xraR.call(this, "B"), len: 1 },
-      { instr: "XRA C", action: () => this.xraR.call(this, "C"), len: 1 },
-      { instr: "XRA D", action: () => this.xraR.call(this, "D"), len: 1 },
-      { instr: "XRA E", action: () => this.xraR.call(this, "E"), len: 1 },
-      { instr: "XRA H", action: () => this.xraR.call(this, "H"), len: 1 },
-      { instr: "XRA L", action: () => this.xraR.call(this, "L"), len: 1 },
-      { instr: "XRA (HL)", action: () => this.xraM.call(this), len: 1 },
-      { instr: "XRA A", action: () => this.xraR.call(this, "A"), len: 1 },
-    ],
-    /** 0xb */ [
-      { instr: "ORA B", action: () => this.ora.call(this, "B"), len: 1 },
-      { instr: "ORA C", action: () => this.ora.call(this, "C"), len: 1 },
-      { instr: "ORA D", action: () => this.ora.call(this, "D"), len: 1 },
-      { instr: "ORA E", action: () => this.ora.call(this, "E"), len: 1 },
-      { instr: "ORA H", action: () => this.ora.call(this, "H"), len: 1 },
-      { instr: "ORA L", action: () => this.ora.call(this, "L"), len: 1 },
-      { instr: "ORA (HL)", action: () => this.ora.call(this, "M"), len: 1 },
-      { instr: "ORA A", action: () => this.ora.call(this, "A"), len: 1 },
-
-      { instr: "CMP B", action: () => this.cmp.call(this, "B"), len: 1 },
-      { instr: "CMP C", action: () => this.cmp.call(this, "C"), len: 1 },
-      { instr: "CMP D", action: () => this.cmp.call(this, "D"), len: 1 },
-      { instr: "CMP E", action: () => this.cmp.call(this, "E"), len: 1 },
-      { instr: "CMP H", action: () => this.cmp.call(this, "H"), len: 1 },
-      { instr: "CMP L", action: () => this.cmp.call(this, "L"), len: 1 },
-      { instr: "CMP (HL)", action: () => this.cmp.call(this, "M"), len: 1 },
-      { instr: "CMP A", action: () => this.cmp.call(this, "A"), len: 1 },
-    ],
-    /** 0xc */ [
-      /** 0x0 */ { instr: "RNZ", action: this.rnz, len: 1 },
-      /** 0x1 */ {
-        instr: "POP BC",
-        action: () => this.pop.call(this, "B", "C"),
-        len: 1,
-      },
-      /** 0x2 */ {
-        instr: "JNZ",
-        action: this.jnz,
-        len: 3,
-      },
-      /** 0x3 */ {
-        instr: "JMP",
-        action: this.jmp,
-        len: 3,
-      },
-      /** 0x4 */ { instr: "CNZ", action: this.cnz, len: 3 },
-      /** 0x5 */ {
-        instr: "PUSH BC",
-        action: () => this.pushXX.call(this, "B", "C"),
-        len: 1,
-      },
-      /** 0x6 */ {
-        instr: "ADI",
-        action: this.adi,
-        len: 2,
-      },
-      /** 0x7 */ { instr: "RST 0", action: () => this.rst(0x00), len: 1 },
-      { instr: "RZ", action: this.rz, len: 1 },
-      { instr: "RET", action: this.ret, len: 1 },
-      {
-        instr: "JZ",
-        action: this.jz,
-        len: 3,
-      },
-      /** 0xb */ null,
-      /** 0xc */ { instr: "CZ", action: this.cz, len: 3 },
-      /** 0xd */ {
-        instr: "CALL",
-        action: this.call,
-        len: 3,
-      },
-      /** 0xe */ null,
-      /** 0xf */ { instr: "RST 1", action: () => this.rst(0x08), len: 1 },
-    ],
-    /** 0xd */ [
-      /** 0x0 */ { instr: "RNC", action: this.rnc, len: 1 },
-      /** 0x1 */ {
-        instr: "POP DE",
-        action: () => this.pop.call(this, "D", "E"),
-        len: 1,
-      },
-      /** 0x2 */ {
-        instr: "JNC",
-        action: this.jnc,
-        len: 3,
-      },
-      /** 0x3 */ { instr: "OUT", action: this.out, len: 2 },
-      { instr: "CNC", action: this.cnc, len: 3 },
-      /** 0x5 */ {
-        instr: "PUSH DE",
-        action: () => this.pushXX.call(this, "D", "E"),
-        len: 1,
-      },
-      /** 0x6 */ { instr: "SUI", action: this.sui, len: 2 },
-      /** 0x7 */ { instr: "RST 2", action: () => this.rst(0x10), len: 1 },
-      /** 0x8 */ { instr: "RC", action: this.rc, len: 1 },
-      /** 0x9 */ { instr: "RET", action: this.ret, len: 1 },
-      /** 0xa */ {
-        instr: "JC",
-        action: this.jc,
-        len: 3,
-      },
-      /** 0xb */ {
-        instr: "IN",
-        action: this.in,
-        len: 2,
-      },
-      /**0xc */ null,
-      /**0xd */ null,
-      /**0xe */ { instr: "SBI", action: this.sbi, len: 2 },
-      /** 0xf */ { instr: "RST 3", action: () => this.rst(0x18), len: 1 },
-    ],
-    /** 0xe */ [
-      { instr: "RPO", action: this.rpo, len: 1 },
-      /** 0x1 */ {
-        instr: "POP HL",
-        action: () => this.pop.call(this, "H", "L"),
-        len: 1,
-      },
-      { instr: "JPO", action: this.jpo, len: 3 },
-      { instr: "XTHL", action: this.xthl, len: 1 },
-      null,
-      {
-        instr: "PUSH HL",
-        action: () => this.pushXX.call(this, "H", "L"),
-        len: 1,
-      },
-      { instr: "ANI", action: this.ani, len: 2 },
-      /** 0x7 */ { instr: "RST 4", action: () => this.rst(0x20), len: 1 },
-      { instr: "RPE", action: this.rpe, len: 1 },
-      { instr: "PCHL", action: this.pchl, len: 1 },
-      null,
-      { instr: "XCHG", action: this.xchg, len: 1 },
-      { instr: "CPE", action: this.cpe, len: 3 },
-      null,
-      { instr: "XRI", action: this.xri, len: 2 },
-      /** 0xf */ { instr: "RST 5", action: () => this.rst(0x28), len: 1 },
-    ],
-    /** 0xf */ [
-      { instr: "RP", action: this.rp, len: 1 },
-      { instr: "POP AF", action: () => this.pop.call(this, "A", "F"), len: 1 },
-      null,
-      null,
-      null,
-      {
-        instr: "PUSH AF",
-        action: () => this.pushXX.call(this, "A", "F"),
-        len: 1,
-      },
-      { instr: "ORI", action: this.ori, len: 2 },
-      /** 0x7 */ { instr: "RST 6", action: () => this.rst(0x30), len: 1 },
-      { instr: "RM", action: this.rm, len: 1 },
-      null,
-      { instr: "JM", action: this.jm, len: 3 }, // 0xfa
-      { instr: "EI", action: this.ei, len: 1 },
-      { instr: "CM", action: this.cm, len: 3 },
-      null,
-      {
-        instr: "CPI",
-        action: this.cpi,
-        len: 2,
-      },
-      /** 0xf */ { instr: "RST 7", action: () => this.rst(0x38), len: 1 },
-    ],
-  ];
-
   disassemble(opcode) {
-    if (opcode == undefined) {
+    if (opcode === undefined) {
       throw new Error(
-        "Opcode is undefined. Here is the stack track: " +
-          `PC: ${this.PC}\nSP: ${this.SP}\n${this.memory.length}`
+        `Opcode undefined @ PC=${this.PC.toString(16).padStart(4, "0")}`
       );
     }
+
     const op = this._instructionsTable[opcode];
     if (!op) {
-      throw new Error(`Invalid opcode: ${opcode.toString(16)}`);
+      throw new Error(`Invalid opcode ${opcode.toString(16).toUpperCase()}`);
     }
 
-    const argsLen = op?.len ? op.len - 1 : 0;
-    let args = [];
+    const argsLen = op.len ? op.len - 1 : 0;
+    let argValue = 0;
 
-    let mnemonic = (function (that, instr, argsLen) {
-      let arg;
-      switch (argsLen) {
-        case 1:
-          arg = that.memory.readByte(that.PC + 1);
-          break;
-        case 2:
-          arg = that.memory.read16(that.PC + 1);
-          break;
-        default:
-          break;
+    // 🔹 read once
+    if (argsLen === 1) {
+      argValue = this.memory.readByte(this.PC + 1);
+    } else if (argsLen === 2) {
+      argValue = this.memory.read16(this.PC + 1);
+    }
+
+    // 🔹 precompute hex strings (avoid repeated toString/padStart)
+    const pcHex = this.PC.toString(16).padStart(4, "0").toUpperCase();
+    const opcodeHex = opcode.toString(16).padStart(2, "0").toUpperCase();
+
+    let argsHex = "";
+    if (argsLen > 0) {
+      const bytes = this.memory.readBytes(this.PC + 1, argsLen);
+      if (argsLen === 1) {
+        argsHex = bytes[0].toString(16).padStart(2, "0").toUpperCase();
+      } else {
+        argsHex =
+          bytes[1].toString(16).padStart(2, "0").toUpperCase() +
+          " " +
+          bytes[0].toString(16).padStart(2, "0").toUpperCase();
       }
-
-      if (arg !== undefined) {
-        arg =
-          "$" +
-          arg
-            .toString(16)
-            .padStart(argsLen * 2, "0")
-            .toUpperCase();
-      } else arg = "";
-
-      return instr + " " + arg;
-    })(this, op.instr, argsLen);
-
-    if (argsLen) {
-      args = this.memory.readBytes(this.PC + 1, argsLen);
-      args = args.map((arg) => arg.toString(16).padStart(2, "0").toUpperCase());
     }
 
-    const line = `${this.PC.toString(16).padStart(4, "0")}: ${opcode
-      .toString(16)
-      .padStart(2, "0")
-      .toUpperCase()} ${args.join(" ").padEnd(8, " ")} ${mnemonic}`;
+    // 🔹 build mnemonic fast
+    let mnemonic = op.instr;
+    if (argsLen > 0) {
+      mnemonic +=
+        " $" +
+        argValue
+          .toString(16)
+          .padStart(argsLen * 2, "0")
+          .toUpperCase();
+    }
 
-    return line;
+    // 🔹 preallocate and build line (no nested template overhead)
+    return (
+      pcHex + ": " + opcodeHex + " " + argsHex.padEnd(8, " ") + " " + mnemonic
+    );
   }
 }
-
-// name === __MAIN__
-const cpu = new Cpu({ memory: null });
-// cpu.__instructions.flatMap(({ instr, len, row }) => {
-//   const fn = instr
-//     .replace(",", "")
-//     .replace(" ", "_")
-//     .replace("(", "")
-//     .replace(")", "");
-
-//   return `op("${instr}", cpu.${fn}, ${len}),`;
-// });
-
-let defs = [];
-let calls = [];
-cpu.__instructions.forEach((row, i) => {
-  row.forEach((o, j) => {
-    if (!o) return null;
-    const { instr } = o;
-    const fn = "_" + instr.replace(/[,\(\)]/g, "").replace(/\s/g, "_");
-    defs.push(`${fn}(){}`);
-  });
-
-  row.forEach((o, j) => {
-    const h = (i << 4) | j;
-    let ret;
-    if (!o)
-      return calls.push(`I[0x${h.toString(16).padStart(2, "0")}] = null;`);
-    const { instr, len } = o;
-    const fn = "_" + instr.replace(/[,\(\)]/g, "").replace(/\s/g, "_");
-
-    calls.push(
-      `I[0x${h
-        .toString(16)
-        .padStart(2, "0")}] = op("${instr}", this.${fn}, ${len})`
-    );
-  });
-});
-
-// console.log(defs.join("\n"));
-// console.log(calls.join(";\n"));
