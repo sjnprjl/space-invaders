@@ -12,6 +12,7 @@
   const runner = document.getElementById("runner");
   const memory = new Memory(0x4000);
   const cpu = new Cpu({ memory });
+  globalThis.cpu = cpu;
 
   const video = memory.readVideoRAM();
 
@@ -27,10 +28,17 @@
     let cyclesThisFrame = 0;
 
     while (cont && cyclesThisFrame < CYCLES_PER_FRAME) {
+      // if (cpu.PC === 0x006f) {
+      //   debug = true;
+      //   cont = false;
+      // }
       if (debug) {
         cont = !cont;
         const decoded = cpu.disassemble(cpu.memory.readByte(cpu.PC));
         console.log(decoded);
+      } else {
+        // const decoded = cpu.disassemble(cpu.memory.readByte(cpu.PC));
+        // console.log(decoded);
       }
       cyclesThisFrame += cpu.execute();
 
@@ -107,6 +115,21 @@
     switch (e.key) {
       case "d":
         cpu.io[INT_1] |= 0x01; // deposit credits 0b00000001 (mask)
+        break;
+      case "b":
+        debug = true;
+        break;
+      case "n":
+        if (debug) {
+          cont = true;
+        } else {
+          cont = false;
+        }
+        debug = true;
+        break;
+      case "c":
+        debug = false;
+        cont = true;
         break;
     }
   });

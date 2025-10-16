@@ -48,3 +48,5 @@ class Memory {
     this._data[address] = value;
   }
 }
+
+if (typeof module !== "undefined") module.exports = Memory;

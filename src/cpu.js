@@ -271,27 +271,27 @@ class Cpu {
   }
 
   _sub(a, b) {
-    let result = a + (~b & 0xff) + 1;
+    const bcomp2 = (~b & 0xff) + 1;
+    let result = a + bcomp2;
 
-    if (result > 0xff) {
+    if (a < b) {
       this.CarryFlag = 1;
     } else {
       this.CarryFlag = 0;
     }
 
-    if (result > 0x7f) {
-      this.SignFlag = 1;
-    } else this.SignFlag = 0;
-
-    if ((result & 0xff) === 0) {
+    if (a === b) {
       this.ZeroFlag = 1;
     } else this.ZeroFlag = 0;
 
-    if ((result & 0x0f) > 9) {
+    if ((a & 0xf) + (bcomp2 & 0xf) > 0x0f) {
       this.AuxCarryFlag = 1;
     } else {
       this.AuxCarryFlag = 0;
     }
+
+    if (result & 0x80) this.SignFlag = 1;
+    else this.SignFlag = 0;
 
     this.ParityFlag = this.testParity(result & 0xff);
     return result & 0xff;
@@ -314,7 +314,7 @@ class Cpu {
       this.ZeroFlag = 1;
     } else this.ZeroFlag = 0;
 
-    if ((result & 0x0f) > 9) {
+    if ((a & 0xf) + (b & 0xf) > 0x0f) {
       this.AuxCarryFlag = 1;
     } else {
       this.AuxCarryFlag = 0;
@@ -325,6 +325,7 @@ class Cpu {
   }
 
   _add(value) {
+    let a = this.A;
     this.A += value;
 
     if (this.A > 0xff) {
@@ -342,7 +343,7 @@ class Cpu {
       this.ZeroFlag = 1;
     } else this.ZeroFlag = 0;
 
-    if ((this.A & 0x0f) > 9) {
+    if ((a & 0xf) + (value & 0xf) > 9) {
       this.AuxCarryFlag = 1;
     } else {
       this.AuxCarryFlag = 0;
@@ -416,7 +417,7 @@ class Cpu {
 
   _logicalGroupFlagChange(value) {
     this.ZeroFlag = value === 0 ? 1 : 0;
-    this.SignFlag = value > 0x7f ? 1 : 0;
+    this.SignFlag = value & 0x80 ? 1 : 0;
     this.CarryFlag = 0;
     this.AuxCarryFlag = 0;
     this.ParityFlag = this.testParity(value);
@@ -705,8 +706,9 @@ class Cpu {
    * Condition bits affected: Carry
    */
   rar() {
-    this.CarryFlag = this.A & 0x01;
+    const lsb = this.A & 0x01;
     this.A = (this.A >> 1) | (this.CarryFlag << 7);
+    this.CarryFlag = lsb;
     this.PC += 1;
     return 4;
   }
@@ -721,8 +723,9 @@ class Cpu {
    * flag is affected.
    */
   ral() {
-    this.CarryFlag = this.A & 0x80;
+    let msb = this.A & 0x80;
     this.A = ((this.A << 1) | this.CarryFlag) & 0xff;
+    this.CarryFlag = msb;
     this.PC += 1;
     return 4;
   }
@@ -1167,7 +1170,7 @@ class Cpu {
    * performed to subroutine sub
    */
   cz() {
-    if (!this.ZeroFlag) return this.call();
+    if (this.ZeroFlag) return this.call();
     this.PC += 3;
     return 11;
   }
@@ -1180,7 +1183,7 @@ class Cpu {
    * performed to subroutine sub
    */
   cnz() {
-    if (this.ZeroFlag) return this.call();
+    if (!this.ZeroFlag) return this.call();
     this.PC += 3;
     return 11;
   }
@@ -1294,7 +1297,7 @@ class Cpu {
    *
    */
   rnz() {
-    if (this.ZeroFlag === 0) return this.ret(), 11;
+    if (!this.ZeroFlag) return this.ret(), 11;
     this.PC += 1;
     return 5;
   }
@@ -1415,7 +1418,7 @@ class Cpu {
    * @param {'BC' | 'DE'} rp
    */
   stax(rp) {
-    this.memory.writeByte(rp, this.A);
+    this.memory.writeByte(this[rp], this.A);
     this.PC += 1;
     return 7;
   }
@@ -2575,9 +2578,9 @@ class Cpu {
         argsHex = bytes[0].toString(16).padStart(2, "0").toUpperCase();
       } else {
         argsHex =
-          bytes[1].toString(16).padStart(2, "0").toUpperCase() +
+          bytes[0].toString(16).padStart(2, "0").toUpperCase() +
           " " +
-          bytes[0].toString(16).padStart(2, "0").toUpperCase();
+          bytes[1].toString(16).padStart(2, "0").toUpperCase();
       }
     }
 
@@ -2598,3 +2601,5 @@ class Cpu {
     );
   }
 }
+
+if (typeof module !== "undefined") module.exports = Cpu;
