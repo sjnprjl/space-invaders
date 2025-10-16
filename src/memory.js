@@ -40,6 +40,11 @@ class Memory {
     return this._data.at(address) | (this._data.at(address + 1) << 8);
   }
   writeByte(address, value) {
+    // __DEBUG__ {
+    // if (address < 0x2000) {
+    //   throw new Error(`Writing to ROM: ${address.toString(16)}`);
+    // }
+    // __DEBUG__ }
     this._data[address] = value;
   }
 }

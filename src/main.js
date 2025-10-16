@@ -17,6 +17,8 @@
 
   let prevTime = 0;
   let interruptFlip = 0;
+  let cont = true;
+  let debug = false;
   const r = document.getElementById("registers");
   const render = (ms) => {
     const dt = (ms - prevTime) / 1000;
@@ -24,7 +26,12 @@
     prevTime = ms;
     let cyclesThisFrame = 0;
 
-    while (cyclesThisFrame < CYCLES_PER_FRAME) {
+    while (cont && cyclesThisFrame < CYCLES_PER_FRAME) {
+      if (debug) {
+        cont = !cont;
+        const decoded = cpu.disassemble(cpu.memory.readByte(cpu.PC));
+        console.log(decoded);
+      }
       cyclesThisFrame += cpu.execute();
 
       if (
@@ -46,8 +53,7 @@
               .padStart(4, "0")}\t${v.toString(2).padStart(16, "0")}`
         )
         .join("\n") +
-      "\nisrDelay: " +
-      memory.readByte(0x20c0);
+      ("\n" + cpu.io[0x01].toString(2).padStart(8, "0"));
     // paint screen
     const img = ctx.createImageData(WIDTH, HEIGHT);
     const data = img.data; // RGBA array
@@ -87,9 +93,25 @@
   });
 
   runner.addEventListener("click", () => {
-    step = true;
+    if (debug) {
+      cont = true;
+    } else {
+      cont = false;
+    }
+    debug = true;
   });
 
-  window.addEventListener("keydown", (e) => {});
+  const INT_1 = 0x01;
+  const PLAYER_1_START_MASK = 0x04;
+  window.addEventListener("keydown", (e) => {
+    switch (e.key) {
+      case "d":
+        cpu.io[INT_1] |= 0x01; // deposit credits 0b00000001 (mask)
+        break;
+    }
+  });
   window.addEventListener("keyup", (e) => {});
+  document.getElementById("startGame").addEventListener("click", () => {
+    cpu.io[INT_1] |= PLAYER_1_START_MASK;
+  });
 })();
