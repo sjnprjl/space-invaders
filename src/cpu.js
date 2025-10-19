@@ -2,31 +2,31 @@
  * Intel 8080 CPU
  */
 class Cpu {
-  /**
-   * Registers
-   */
-  A = 0;
-  B = 0;
-  C = 0;
-  D = 0;
-  E = 0;
-  H = 0;
-  L = 0;
-  SP = 0;
-  PC = 0;
-
-  /**
-   * Flag
-   */
-  F = 0;
-
-  _isInterruptEnable = false;
-
-  _io = new Uint8Array(0x7);
-
   constructor({ memory }) {
     this.memory = memory;
     this._isHalted = false;
+
+    /**
+     * Registers
+     */
+    this.A = 0;
+    this.B = 0;
+    this.C = 0;
+    this.D = 0;
+    this.E = 0;
+    this.H = 0;
+    this.L = 0;
+    this.SP = 0;
+    this.PC = 0;
+
+    /**
+     * Flag
+     */
+    this.F = 0;
+
+    this._isInterruptEnable = false;
+
+    this._io = new Uint8Array(0x7);
 
     this._instructionsTable = this._buildInstructionsTable();
 
@@ -391,9 +391,8 @@ class Cpu {
 
   subCR(reg) {
     const value = this[reg];
-    let carry = this.CarryFlag;
-    this.A = this._sub(this.A, value);
-    this.A = this._sub(this.A, carry);
+    const result = this._add2(this.CarryFlag, value);
+    this.A = this._sub(this.A, result);
     this.PC += 1;
     return 4;
   }
@@ -408,9 +407,8 @@ class Cpu {
 
   subCM() {
     const value = this.memory.readByte(this.HL);
-    let carry = this.CarryFlag;
-    this.A = this._sub(this.A, value);
-    this.A = this._sub(this.A, carry);
+    const result = this._add2(this.CarryFlag, value);
+    this.A = this._sub(this.A, result);
     this.PC += 1;
     return 7;
   }
@@ -455,8 +453,7 @@ class Cpu {
   }
 
   xraM() {
-    const result = this.A ^ this.memory.readByte(this.HL);
-    this._xra(result);
+    this._xra(this.memory.readByte(this.HL));
     this.PC += 1;
     return 7;
   }
@@ -472,6 +469,7 @@ class Cpu {
     const imm = this.memory.readByte(this.PC + 1);
     const result = this.A ^ imm;
     this._logicalGroupFlagChange(result);
+    this.A = result;
     this.PC += 2;
     return 7;
   }
@@ -618,8 +616,7 @@ class Cpu {
    */
   LXI(rp) {
     const value = this.memory.read16(this.PC + 1);
-    if (rp === "SP") this.SP = value;
-    else this[rp] = value;
+    this[rp] = value;
     this.PC += 3;
     return 10;
   }
@@ -794,6 +791,7 @@ class Cpu {
      * Carry bit is equal to one, the accumulator is incremented by six.
      * Otherwise, no incrementing occurs
      */
+    let carry = this.CarryFlag;
     if (this.AuxCarryFlag || (this.A & 0x0f) > 9) {
       this._add(6);
     }
@@ -804,7 +802,7 @@ class Cpu {
      * bits of the accumulator are incremented by six. Otherwise,
      * no incrementing occurs
      */
-    if ((this.A & 0xf0) > 0x90 || this.CarryFlag) {
+    if ((this.A & 0xf0) > 0x90 || carry) {
       this._add(0x60);
     }
     this.PC += 1;
@@ -875,13 +873,8 @@ class Cpu {
    * Increment register pair
    */
   inx(rp) {
-    let value;
-    if (rp === "SP") {
-      value = this.memory.readByte(this.SP);
-    } else value = (this[rp] + 1) & 0xffff;
-    if (rp === "SP") {
-      this.memory.writeByte(this.SP, value);
-    } else this[rp] = value;
+    const value = (this[rp] + 1) & 0xffff;
+    this[rp] = value;
     this.PC += 1;
     return 5;
   }
@@ -895,11 +888,8 @@ class Cpu {
    * Condition bits affected: None
    */
   dcx(rp) {
-    let value;
-    if (rp === "SP") value = this.memory.readByte(this.SP);
-    else value = (this[rp] - 1) & 0xffff;
-    if (rp === "SP") this.memory.writeByte(this.SP, value);
-    else this[rp] = value;
+    const value = (this[rp] - 1) & 0xffff;
+    this[rp] = value;
     this.PC += 1;
     return 5;
   }
@@ -1108,8 +1098,8 @@ class Cpu {
     const forL = this.memory.readByte(this.SP);
     const forH = this.memory.readByte(this.SP + 1);
 
-    this.memory.readByte(this.SP, this.L);
-    this.memory.readByte(this.SP + 1, this.H);
+    this.memory.writeByte(this.SP, this.L);
+    this.memory.writeByte(this.SP + 1, this.H);
 
     this.L = forL;
     this.H = forH;
@@ -1135,7 +1125,6 @@ class Cpu {
    */
   pchl() {
     this.PC = this.HL;
-    this.PC += 1;
     return 5;
   }
 
@@ -1152,7 +1141,7 @@ class Cpu {
    * Condition bits affected: None
    */
   lhld() {
-    this.HL = this.memory.read16(this.PC + 1);
+    this.HL = this.memory.read16(this.memory.read16(this.PC + 1));
     this.PC += 3;
     return 16;
   }
@@ -1501,24 +1490,30 @@ class Cpu {
    * @param {number} exp RST Vector
    */
   rst(exp) {
-    if (!this._isInterruptEnable) {
-      this.PC += 1;
-    } else {
-      this.memory.writeByte(this.SP - 1, (this.PC >> 8) & 0xff);
-      this.memory.writeByte(this.SP - 2, this.PC & 0xff);
-      this.SP -= 2;
-      this.PC = exp;
-    }
+    this.memory.writeByte(this.SP - 1, (this.PC >> 8) & 0xff);
+    this.memory.writeByte(this.SP - 2, this.PC & 0xff);
+    this.SP -= 2;
+    this.PC = exp;
     return 11;
   }
 
+  interrupt(op) {
+    if (!this._isInterruptEnable) {
+      this.PC += 1;
+    }
+    switch (op) {
+      case 0:
+        return this.rst1();
+      case 1:
+        return this.rst2();
+    }
+  }
+
   rst1() {
-    this._RST_1();
-    if (!this._isInterruptEnable) this.PC -= 1;
+    return this._RST_1();
   }
   rst2() {
-    this._RST_2();
-    if (!this._isInterruptEnable) this.PC -= 1;
+    return this._RST_2();
   }
 
   execute() {
@@ -1965,7 +1960,7 @@ class Cpu {
     return this.subR("L");
   }
   _SUB_HL() {
-    return this.subM.call(this);
+    return this.subM();
   }
   _SUB_A() {
     return this.subR("A");
@@ -1989,7 +1984,7 @@ class Cpu {
     return this.subCR("L");
   }
   _SBB_HL() {
-    return this.subCM.call(this);
+    return this.subCM();
   }
   _SBB_A() {
     return this.subCR("A");
@@ -2013,7 +2008,7 @@ class Cpu {
     return this.anaR("L");
   }
   _ANA_HL() {
-    return this.anaM.call(this);
+    return this.anaM();
   }
   _ANA_A() {
     return this.anaR("A");
@@ -2037,7 +2032,7 @@ class Cpu {
     return this.xraR("L");
   }
   _XRA_HL() {
-    return this.xraM.call(this);
+    return this.xraM();
   }
   _XRA_A() {
     return this.xraR("A");
