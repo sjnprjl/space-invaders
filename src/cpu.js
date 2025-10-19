@@ -996,12 +996,7 @@ class Cpu {
    */
   sbi() {
     let imm = this.memory.readByte(this.PC + 1);
-    imm += this.CarryFlag ? 1 : 0;
-    imm &= 0xff;
-    // two's complement
-    imm = imm ^ 0xff;
-    imm += 1;
-    imm &= 0xff;
+    imm = this._add2(imm, this.CarryFlag ? 1 : 0);
 
     this.A = this._sub(this.A, imm);
 
