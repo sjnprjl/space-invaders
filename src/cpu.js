@@ -2,7 +2,7 @@
  * Intel 8080 CPU
  */
 class Cpu {
-  constructor({ memory }) {
+  constructor({ memory, inputs = [], outputs = [] }) {
     this.memory = memory;
     this._isHalted = false;
 
@@ -25,73 +25,32 @@ class Cpu {
     this.F = 0;
 
     this._isInterruptEnable = false;
-
-    this._io = new Uint8Array(0x7);
+    this._pendingInterrupt = null;
 
     this._instructionsTable = this._buildInstructionsTable();
 
-    // INPUTS
-    // port 0
-    /**
-     *                 +-------- ? tied to demux port 7 ?
-     *                 |+------- Right
-     *                 ||+------ Left
-     *                 |||+----- Fire
-     *                 ||||+---- Always 1
-     *                 |||||+--- Always 1
-     *                 ||||||+-- Always 1
-     *                 |||||||+- DIP4 (Seems to be self-test-request read at power up)
-     */ //             ||||||||
-    this._io[0x00] = 0b00001110;
-
-    // port 1
-
-    /**
-     *                 +-------- Not Connected
-     *                 |+------- 1P right (1 if pressed)
-     *                 ||+------ 1P left (1 if pressed)
-     *                 |||+----- 1P shot (1 if pressed)
-     *                 ||||+---- Always 1
-     *                 |||||+--- 1P start (1 if pressed)
-     *                 ||||||+-- 2P start (1 if pressed)
-     *                 |||||||+- Credit (1 if deposit)
-     */ //             ||||||||
-    this._io[0x01] = 0b00001000;
-
-    // port 2
-    /**
-     *                 +-------- DIP7 Coin Info displayed in demo screen 0=ON
-     *                 |+------- P2 Right (1 if pressed)
-     *                 ||+------ P2 Left (1 if pressed)
-     *                 |||+----- P2 Shot (1 if pressed)
-     *                 ||||+---- DIP6 0 = extra shift at 1500, 1 = extra shift at 2000
-     *                 |||||+--- Tilt
-     *                 ||||||+-- DIP5 01 = 4 Ships 11 = 6 Ships
-     *                 |||||||+- DIP3 00 = 3 Ships 10 = 5 Ships
-     */ //             ||||||||
-    this._io[0x02] = 0b00000000;
-
-    // port 3
-    this._io[0x3] = 0b00000000;
-
     // OUTPUTS
     // port 2 (bit 0,1, 2 Shift Amount)
-    // port 3 (discrete sounds)
-    /**
-     *                 +-------- NC (not wired)
-     *                 |+------- NC (not wired)
-     *                 ||+------ AMP enable
-     *                 |||+----- Extended Play
-     *                 ||||+---- Invader die
-     *                 |||||+--- Flash (player die)
-     *                 ||||||+-- Shot
-     *                 |||||||+- UFO (repeats)
-     */ //             ||||||||
     // this._io[0x02] = 0b00000000;
+    // Port 4
+    // bit 0-7 shift data (LSB on 1st write, MSB on 2nd)
+
+    this._inputs = inputs;
+    this._outputs = outputs;
   }
 
-  get io() {
-    return this._io;
+  getInputDevice(addr) {
+    return this._inputs[addr];
+  }
+  getOutputDevice(addr) {
+    return this._outputs[addr];
+  }
+  readIO(addr) {
+    return this._inputs[addr].read(addr);
+  }
+
+  setIO(addr, data) {
+    this._outputs[addr].write(addr, data);
   }
 
   get registers() {
@@ -641,7 +600,8 @@ class Cpu {
    */
   in() {
     const descriptor = this.memory.readByte(this.PC + 1);
-    this.A = this._io[descriptor];
+    const input = this._inputs[descriptor];
+    this.A = input.read(descriptor);
     this.PC += 2;
     return 10;
   }
@@ -654,7 +614,9 @@ class Cpu {
    * to output device number expo
    */
   out() {
-    this._io[this.memory.readByte(this.PC + 1)] = this.A;
+    const descriptor = this.memory.readByte(this.PC + 1);
+    const output = this._outputs[descriptor];
+    output.write(descriptor, this.A);
     this.PC += 2;
     return 10;
   }
@@ -1497,26 +1459,49 @@ class Cpu {
     return 11;
   }
 
-  interrupt(op) {
-    if (!this._isInterruptEnable) {
-      this.PC += 1;
-    }
-    switch (op) {
-      case 0:
-        return this.rst1();
-      case 1:
-        return this.rst2();
-    }
-  }
+  interrupt(exp) {
+    if (this._isInterruptEnable) {
+      let int = null;
+      switch (exp) {
+        case 0:
+          int = this._RST_0;
+          break;
+        case 1:
+          int = this._RST_1;
+          break;
+        case 2:
+          int = this._RST_2;
+          break;
+        case 3:
+          int = this._RST_3;
+          break;
+        case 4:
+          int = this._RST_4;
+          break;
+        case 5:
+          int = this._RST_5;
+          break;
+        case 6:
+          int = this._RST_6;
+          break;
+        case 7:
+          int = this._RST_7;
+      }
 
-  rst1() {
-    return this._RST_1();
-  }
-  rst2() {
-    return this._RST_2();
+      this._pendingInterrupt = int;
+      this._isInterruptEnable = false;
+      return true;
+    }
+    return false;
   }
 
   execute() {
+    if (this._pendingInterrupt !== null) {
+      const tick = this._pendingInterrupt();
+      this._pendingInterrupt = null;
+      return tick;
+    }
+
     const opcode = this.memory.readByte(this.PC);
     const op = this._instructionsTable[opcode];
     if (!op) {

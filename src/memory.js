@@ -16,16 +16,12 @@ class Memory {
    *
    * @param {Uint8Array} data
    */
-  addROMData(data) {
-    this._data.set(data, 0x0000);
+  addData(data, offset = 0x00) {
+    this._data.set(data, offset);
   }
 
   get length() {
     return this._data.length;
-  }
-
-  readVideoRAM() {
-    return this._data.subarray(0x2400, 0x3fff);
   }
 
   readByte(address) {
@@ -40,12 +36,10 @@ class Memory {
     return this._data.at(address) | (this._data.at(address + 1) << 8);
   }
   writeByte(address, value) {
-    // __DEBUG__ {
-    // if (address < 0x2000) {
-    //   throw new Error(`Writing to ROM: ${address.toString(16)}`);
-    // }
-    // __DEBUG__ }
     this._data[address] = value;
+  }
+  get data() {
+    return this._data;
   }
 }
 

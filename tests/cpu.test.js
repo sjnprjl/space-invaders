@@ -151,4 +151,33 @@ describe("CPU", () => {
     expect(cpu.memory.read16(cpu.SP)).toBe(0x71);
     expect(cpu.memory.read16(cpu.SP + 1)).toBe(0x0);
   });
+  it('should correctly execute "CPI" instruction', () => {
+    cpu.A = 0xf2;
+    cpu.CarryFlag = 0;
+    cpu.ZeroFlag = 0;
+    cpu.SignFlag = 0;
+    cpu.ParityFlag = 0;
+    memory.writeByte(0x0001, 0xf2);
+    expect(cpu._CPI()).toBe(7);
+    expect(cpu.PC).toBe(2);
+    expect(cpu.ZeroFlag).toBe(0x40);
+  });
+  it('should correctly execute "RZ" instruction', () => {
+    cpu.SP = 0x1000;
+    memory.writeByte(cpu.SP - 2, 0x0000);
+    memory.writeByte(cpu.SP - 1, 0x0001);
+    cpu.SP -= 2;
+    cpu.A = 0xf2;
+    cpu.CarryFlag = 0;
+    cpu.ZeroFlag = 0;
+    cpu.SignFlag = 0;
+    cpu.ParityFlag = 0;
+    memory.writeByte(0x0001, 0xf2);
+    expect(cpu._CPI()).toBe(7);
+    expect(cpu.PC).toBe(2);
+    expect(cpu.ZeroFlag).toBe(0x40);
+    expect(cpu._RZ()).toBe(11);
+    expect(cpu.SP).toBe(0x1000);
+    expect(cpu.PC).toBe(0x100);
+  });
 });

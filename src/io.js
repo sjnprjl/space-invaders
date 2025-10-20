@@ -4,6 +4,10 @@ class IO {
     this._bits = bits;
   }
 
+  get bits() {
+    return this._bits;
+  }
+
   // IN
   read(_) {
     return this._bits | this._readonly;

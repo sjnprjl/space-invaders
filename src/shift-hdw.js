@@ -2,6 +2,7 @@ class ShiftHardware {
   constructor() {
     this._lsb = 0;
     this._msb = 0;
+    this._shift = 0;
     this._shiftAmount = 0;
   }
   write(addr, data) {
