@@ -9,16 +9,17 @@
     />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script src="js/cpu.js"></script>
-    <script src="js/disassembler.js"></script>
-    <script src="js/memory.js"></script>
+    <script src="./src/cpu.js"></script>
+    <script src="./src/memory.js"></script>
+    <script src="./src/io.js"></script>
+    <script src="./src/shift-hdw.js"></script>
     <title>Space Invaders Emulator</title>
     <style>
       body {
         font-family: "Source Code Pro", monospace;
         font-optical-sizing: auto;
         font-style: normal;
-        background-color: #1e1e1e;
+        background-color: black;
       }
     </style>
   </head>
@@ -26,13 +27,9 @@
     <canvas id="game"></canvas>
 
     <div>
-      <input type="file" name="rom" id="rom" />
-      <button id="runner">Step</button>
-    </div>
-    <div>
       <pre style="color: white" id="registers"></pre>
     </div>
 
-    <script src="js/main.js"></script>
+    <script src="./src/index.js"></script>
   </body>
 </html>

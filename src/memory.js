@@ -16,16 +16,12 @@ class Memory {
    *
    * @param {Uint8Array} data
    */
-  addROMData(data) {
-    this._data.set(data, 0x0000);
+  addData(data, offset = 0x00) {
+    this._data.set(data, offset);
   }
 
   get length() {
     return this._data.length;
-  }
-
-  readVideoRAM() {
-    return this._data.subarray(0x2400, 0x3fff);
   }
 
   readByte(address) {
@@ -42,4 +38,9 @@ class Memory {
   writeByte(address, value) {
     this._data[address] = value;
   }
+  get data() {
+    return this._data;
+  }
 }
+
+if (typeof module !== "undefined") module.exports = Memory;
