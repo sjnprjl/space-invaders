@@ -1,5 +1,6 @@
-class ShiftHardware {
+class ShiftHardware extends IO {
   constructor() {
+    super(0x0);
     this._lsb = 0;
     this._msb = 0;
     this._shift = 0;
@@ -13,8 +14,8 @@ class ShiftHardware {
         break;
       case 0x04:
         // shift data
-        this._lsb = this._msb;
-        this._msb = data;
+        this._msb = this._lsb;
+        this._lsb = data;
         break;
     }
   }
