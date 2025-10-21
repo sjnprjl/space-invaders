@@ -1,6 +1,5 @@
 {
   "name": "space-invaders",
-  "base": "https://sjnprjl.github.io/space-invaders/",
   "version": "1.0.0",
   "description": "",
   "directories": {
