@@ -1,7 +1,8 @@
+import { IO } from "./io.js";
 /**
  * Space Invaders Sounds
  */
-class Sound extends IO {
+export class Sound extends IO {
   constructor() {
     super(0x0);
   }

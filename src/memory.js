@@ -1,4 +1,4 @@
-class Memory {
+export class Memory {
   /**
    * @param {Uint8Array} data
    */

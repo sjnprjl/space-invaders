@@ -1,4 +1,5 @@
-class ShiftHardware extends IO {
+import { IO } from "./io.js";
+export class ShiftHardware extends IO {
   constructor() {
     super(0x0);
     this._lsb = 0;

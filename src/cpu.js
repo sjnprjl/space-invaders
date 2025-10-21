@@ -1,7 +1,10 @@
 /**
  * Intel 8080 CPU
  */
-class Cpu {
+export class Cpu {
+  /**
+   * @param {{memory: import('./memory.js').Memory, inputs: import('./io.js').IO[], outputs: import('./io.js').IO[]}} param0
+   */
   constructor({ memory, inputs = [], outputs = [] }) {
     this.memory = memory;
     this._isHalted = false;
@@ -2586,5 +2589,3 @@ class Cpu {
     );
   }
 }
-
-if (typeof module !== "undefined") module.exports = Cpu;

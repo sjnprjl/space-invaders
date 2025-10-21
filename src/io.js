@@ -1,4 +1,4 @@
-class IO {
+export class IO {
   constructor(bits = 0x0) {
     this._readonly = bits;
     this._bits = bits;
