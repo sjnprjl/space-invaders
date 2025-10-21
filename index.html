@@ -13,21 +13,160 @@
     <script src="./src/memory.js"></script>
     <script src="./src/io.js"></script>
     <script src="./src/shift-hdw.js"></script>
+    <script src="./src/sound.js"></script>
     <title>Space Invaders Emulator</title>
     <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
       body {
         font-family: "Source Code Pro", monospace;
         font-optical-sizing: auto;
         font-style: normal;
         background-color: black;
+        color: white;
+      }
+
+      /** 
+      
+      .game-container
+      +-------------------------+
+      |          .hc            |
+      +---------+---------------+
+      | .cc  |  #game     |.dbg |
+      +---------+---------------+
+      */
+      .game-container {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        grid-template-rows: auto 1fr auto;
+        grid-template-areas:
+          "hc hc hc"
+          "cc game game"
+          "ctrl ctrl ctrl";
+        gap: 10px;
+      }
+
+      .controls-container {
+        grid-area: cc;
+      }
+
+      #game {
+        border: 2px solid white;
+        grid-area: game;
+      }
+
+      .heading-container {
+        text-align: center;
+        grid-area: hc;
+        padding: 10px;
+      }
+
+      .dbg-container {
+        grid-area: dbg;
+      }
+
+      .controller-container {
+        grid-area: ctrl;
+        text-align: center;
+      }
+
+      .controller-container button {
+        margin: 4px;
+        padding: 8px 16px;
+        font-size: 16px;
+        border: 1px solid white;
+        background: #000;
+        color: white;
+        font-family: inherit;
+        cursor: pointer;
+      }
+
+      .controller-container button:hover,
+      .controller-container button:focus {
+        background: #222;
+      }
+
+      a {
+        color: #61dafb;
+        text-decoration: none;
+      }
+      table {
+        margin-top: 8px;
+      }
+      td {
+        padding: 4px;
       }
     </style>
   </head>
   <body>
-    <canvas id="game"></canvas>
+    <div class="game-container">
+      <div class="heading-container">
+        <h2>
+          Space Invaders Emulator by
+          <a href="https://github.com/sjnprjl">@sjnprjl</a>
+        </h2>
+        <p>
+          Checkout the source code on
+          <a target="_blank" href="https://github.com/sjnprjl/space-invaders"
+            >Github</a
+          >
+        </p>
+      </div>
+      <div class="controls-container">
+        <strong>Controls</strong>
+        <table border="1">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Player</th>
+              <th>Action</th>
+            </tr>
+          </thead>
 
-    <div>
-      <pre style="color: white" id="registers"></pre>
+          <tbody>
+            <tr>
+              <td><span>Arrow Left</span></td>
+              <td>Both</td>
+              <td>Move Left</td>
+            </tr>
+
+            <tr>
+              <td><span>Arrow Right</span></td>
+              <td>Both</td>
+              <td>Move Right</td>
+            </tr>
+
+            <tr>
+              <td><span>Space</span></td>
+              <td>Both</td>
+              <td>Shoot</td>
+            </tr>
+            <tr>
+              <td><span>Enter</span></td>
+              <td>-</td>
+              <td>Insert Coin</td>
+            </tr>
+            <tr>
+              <td><span>Num 1</span></td>
+              <td>-</td>
+              <td>Start 1 Player Game</td>
+            </tr>
+            <tr>
+              <td><span>Num 2</span></td>
+              <td>-</td>
+              <td>Start 2 Player Game</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <canvas id="game"></canvas>
+      <div class="dbg-container"></div>
+      <div class="controller-container">
+        <button id="reset">Reset</button>
+      </div>
     </div>
 
     <script src="./src/index.js"></script>

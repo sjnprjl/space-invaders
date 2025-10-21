@@ -29,14 +29,24 @@ class Cpu {
 
     this._instructionsTable = this._buildInstructionsTable();
 
-    // OUTPUTS
-    // port 2 (bit 0,1, 2 Shift Amount)
-    // this._io[0x02] = 0b00000000;
-    // Port 4
-    // bit 0-7 shift data (LSB on 1st write, MSB on 2nd)
-
     this._inputs = inputs;
     this._outputs = outputs;
+  }
+
+  reset() {
+    this.A = 0;
+    this.B = 0;
+    this.C = 0;
+    this.D = 0;
+    this.E = 0;
+    this.H = 0;
+    this.L = 0;
+    this.SP = 0;
+    this.PC = 0;
+    this.F = 0;
+    this._isHalted = false;
+    this._isInterruptEnable = false;
+    this._pendingInterrupt = null;
   }
 
   getInputDevice(addr) {

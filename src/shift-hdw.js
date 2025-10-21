@@ -3,7 +3,6 @@ class ShiftHardware extends IO {
     super(0x0);
     this._lsb = 0;
     this._msb = 0;
-    this._shift = 0;
     this._shiftAmount = 0;
   }
   write(addr, data) {
@@ -24,5 +23,10 @@ class ShiftHardware extends IO {
       case 0x03:
         return ((this._msb << 8) | this._lsb) >> this._shiftAmount;
     }
+  }
+  reset() {
+    this._lsb = 0;
+    this._msb = 0;
+    this._shiftAmount = 0;
   }
 }

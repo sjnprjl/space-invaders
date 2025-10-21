@@ -16,4 +16,8 @@ class IO {
   write(_, data) {
     this._bits = data | this._readonly;
   }
+
+  reset() {
+    this._bits = this._readonly;
+  }
 }

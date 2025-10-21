@@ -5,11 +5,11 @@
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
 
+  const resetButton = document.getElementById("reset");
+
   const keyMaps = {
-    s: startGame,
-    d: startDebugging,
-    n: nextStep,
-    c: continueStep,
+    1: onePlayerStart,
+    2: twoPlayerStart,
     ArrowLeft: moveLeft,
     ArrowRight: moveRight,
     " ": shoot,
@@ -28,7 +28,7 @@
   canvas.width = WIDTH * SCALE;
   canvas.height = HEIGHT * SCALE;
 
-  const memory = new Memory(0x43ff);
+  const memory = new Memory(0xffff);
   const rom = Uint8Array.fromBase64(spaceInvadersROM);
   memory.addData(rom);
 
@@ -79,7 +79,7 @@
   const OUT_PORT_0 = new IO(0b00000000);
   const OUT_PORT_1 = new IO(0b00000000);
   // port 3 (discrete sounds)
-  const OUT_PORT_3 = new IO(
+  const OUT_PORT_3 = new Sound(
     /**
      *                    +-------- NC (not wired)
      *                    |+------- NC (not wired)
@@ -93,7 +93,7 @@
     /**              */ 0b00000000
   );
 
-  const OUT_PORT_5 = new IO(
+  const OUT_PORT_5 = new Sound(
     /**
      *                    +-------- NC (not wired)
      *                    |+------- NC (not wired)
@@ -130,48 +130,23 @@
   globalThis.cpu = cpu;
 
   const video = memory.data;
-
-  let interruptFlip = 0;
-  const r = document.getElementById("registers");
-
-  let cont = true;
-  let debug = false;
-  let insertCoinState = 0; // not added yet
-  const render = (ms) => {
+  const RST_1 = 1;
+  const RST_2 = 2;
+  let int = RST_1;
+  const renderFrame = () => {
     let cyclesThisFrame = 0;
 
-    while (cont && cyclesThisFrame < CYCLES_PER_FRAME) {
-      if (debug) {
-        cont = !cont;
-        const instr = cpu.disassemble(cpu.memory.readByte(cpu.PC));
-        console.log(instr);
-      }
-
-      if (cpu.PC === globalThis.BREAKPOINT) {
-        cont = false;
-        startDebugging();
-      }
-
+    while (cyclesThisFrame < CYCLES_PER_FRAME) {
       cyclesThisFrame += cpu.execute();
-      let interrupted = false;
       if (
-        (interruptFlip === 0 && cyclesThisFrame >= CYCLES_PER_FRAME / 2) ||
-        (interruptFlip === 1 && cyclesThisFrame >= CYCLES_PER_FRAME)
+        (int == RST_1 && cyclesThisFrame >= CYCLES_PER_FRAME / 2) ||
+        (int == RST_2 && cyclesThisFrame >= CYCLES_PER_FRAME)
       ) {
-        interrupted = cpu.interrupt(interruptFlip ? 1 : 2);
-        interruptFlip ^= 1;
+        cpu.interrupt(int);
+        int = int === RST_1 ? RST_2 : RST_1;
       }
     }
 
-    r.innerText = Object.entries(cpu.registers)
-      .map(
-        ([k, v]) =>
-          `${k.padStart(2, " ")}: ${v
-            .toString(16)
-            .toUpperCase()
-            .padStart(4, "0")}\t${v.toString(2).padStart(16, "0")}`
-      )
-      .join("\n");
     // paint screen
 
     const img = ctx.createImageData(canvas.width, canvas.height);
@@ -182,48 +157,48 @@
       const y = HEIGHT * SCALE - 1 - (i % 32) * (8 * SCALE);
       const x = Math.floor(i / 32) * SCALE;
       for (let b = 0; b < 8; b++) {
-        const tmp_y = y - b * SCALE;
+        const tmpY = y - b * SCALE;
 
         for (let ys = 0; ys < SCALE; ys++) {
           for (let xs = 0; xs < SCALE; xs++) {
-            const final_x = x + xs;
-            const final_y = tmp_y - ys;
+            const finalX = x + xs;
+            const finalY = tmpY - ys;
             let color = 0x00ff00;
 
-            if (final_y >= 0 && final_y < 32 * SCALE) {
+            if (finalY >= 0 && finalY < 32 * SCALE) {
               color = 0xffffff;
-            } else if (final_y >= 32 * SCALE && final_y < 64 * SCALE) {
+            } else if (finalY >= 32 * SCALE && finalY < 64 * SCALE) {
               color = 0xff0000;
-            } else if (final_y >= 64 * SCALE && final_y < 184 * SCALE) {
+            } else if (finalY >= 64 * SCALE && finalY < 184 * SCALE) {
               color = 0xffffff;
-            } else if (final_y >= 184 * SCALE && final_y < 240 * SCALE) {
+            } else if (finalY >= 184 * SCALE && finalY < 240 * SCALE) {
               color = 0x00ff00;
             } else if (
-              final_y >= 240 * SCALE &&
-              final_y < 256 * SCALE &&
-              final_x >= 0 &&
-              final_x < 16 * SCALE
+              finalY >= 240 * SCALE &&
+              finalY < 256 * SCALE &&
+              finalX >= 0 &&
+              finalX < 16 * SCALE
             ) {
               color = 0xffffff;
             } else if (
-              final_y >= 240 * SCALE &&
-              final_y < 256 * SCALE &&
-              final_x >= 16 * SCALE &&
-              final_x < 134 * SCALE
+              finalY >= 240 * SCALE &&
+              finalY < 256 * SCALE &&
+              finalX >= 16 * SCALE &&
+              finalX < 134 * SCALE
             ) {
               color = 0x00ff00;
             } else if (
-              final_y >= 240 * SCALE &&
-              final_y < 256 * SCALE &&
-              final_x >= 134 * SCALE &&
-              final_x < 224 * SCALE
+              finalY >= 240 * SCALE &&
+              finalY < 256 * SCALE &&
+              finalX >= 134 * SCALE &&
+              finalX < 224 * SCALE
             ) {
               color = 0xffffff;
             }
 
             if (!(byte & (1 << b))) color = 0x000000;
 
-            const px = final_y * canvas.width + final_x;
+            const px = finalY * canvas.width + finalX;
             const idx = px * 4;
             data[idx] = (color >> 16) & 0xff;
             data[idx + 1] = (color >> 8) & 0xff;
@@ -235,69 +210,90 @@
     }
     ctx.putImageData(img, 0, 0);
 
-    requestAnimationFrame(render);
+    requestAnimationFrame(renderFrame);
   };
 
   const PLAYER_1_START_MASK = 0x04;
   const CREDIT_MASK = 0x01;
-  function startGame() {
+  function onePlayerStart() {
     IN_PORT_1.write(_, IN_PORT_1.bits | PLAYER_1_START_MASK);
   }
 
-  function startDebugging() {
-    debug = true;
+  function twoPlayerStart() {
+    IN_PORT_1.write(_, IN_PORT_1.bits | 0x02);
   }
 
-  function nextStep() {
-    cont = !cont;
-    debug = true;
+  function _moveLeft(inPort) {
+    return (e) => {
+      const mask = ~0x60 & 0xff; /** reset move */
+      inPort.write(
+        _,
+        (inPort.bits & mask) |
+          (0x20 &
+            (e.type === "keydown"
+              ? 0xff
+              : 0x00)) /** Set Left move if keydown */
+      );
+    };
   }
 
-  function continueStep() {
-    cont = true;
-    debug = false;
-  }
-
+  const moveLeftP1 = _moveLeft(IN_PORT_1);
+  const moveLeftP2 = _moveLeft(IN_PORT_2);
   function moveLeft(e) {
-    const mask = ~0x60 & 0xff; /** reset move */
-    IN_PORT_1.write(
-      _,
-      (IN_PORT_1.bits & mask) |
-        (0x20 &
-          (e.type === "keydown" ? 0xff : 0x00)) /** Set Left move if keydown */
-    );
+    moveLeftP1(e);
+    moveLeftP2(e);
   }
+
+  function _moveRight(inPort) {
+    return (e) => {
+      const mask = ~0x60 & 0xff; /** reset move */
+      inPort.write(
+        _,
+        (inPort.bits & mask) |
+          (0x40 &
+            (e.type === "keydown"
+              ? 0xff
+              : 0x00)) /** Set Right move if keydown */
+      );
+    };
+  }
+
+  const moveRightP1 = _moveRight(IN_PORT_1);
+  const moveRightP2 = _moveRight(IN_PORT_2);
+
   function moveRight(e) {
-    const mask = ~0x60 & 0xff; /** reset move */
-    IN_PORT_1.write(
-      _,
-      (IN_PORT_1.bits & mask) |
-        (0x40 &
-          (e.type === "keydown" ? 0xff : 0x00)) /** Set Right move if keydown */
-    );
+    moveRightP1(e);
+    moveRightP2(e);
   }
+  function _shoot(inPort) {
+    return (e) => {
+      const mask = ~0x10 & 0xff; /** reset shoot */
+      inPort.write(
+        _,
+        (inPort.bits & mask) |
+          (0x10 &
+            (e.type === "keydown" ? 0xff : 0x00)) /** Set shoot if keydown */
+      );
+    };
+  }
+
+  const shootP1 = _shoot(IN_PORT_1);
+  const shootP2 = _shoot(IN_PORT_2);
   function shoot(e) {
-    const mask = ~0x10 & 0xff; /** reset shoot */
-    IN_PORT_1.write(
-      _,
-      (IN_PORT_1.bits & mask) |
-        (0x10 &
-          (e.type === "keydown" ? 0xff : 0x00)) /** Set shoot if keydown */
-    );
+    shootP1(e);
+    shootP2(e);
   }
 
   function depositCoin(e) {
     if (e.type !== "keydown") return;
     IN_PORT_1.write(_, IN_PORT_1.bits | CREDIT_MASK);
-    console.log("coin switch on");
     setTimeout(() => {
       IN_PORT_1.write(_, IN_PORT_1.bits & (~CREDIT_MASK & 0xff));
-      console.log("coin switch off");
     }, 10);
   }
 
-  window.addEventListener("load", () => {
-    requestAnimationFrame(render);
+  window.addEventListener("DOMContentLoaded", () => {
+    requestAnimationFrame(renderFrame);
   });
 
   // events
@@ -309,5 +305,9 @@
   window.addEventListener("keyup", (e) => {
     const event = keyMaps[e.key];
     event?.(e);
+  });
+
+  resetButton.addEventListener("click", () => {
+    cpu.reset();
   });
 })();
